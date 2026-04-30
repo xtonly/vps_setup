@@ -133,15 +133,26 @@ setup_hostname_swap() {
     echo -e "\n\033[1;33m[2/2] Swap 虚拟内存设置\033[0m"
     read -p "请输入需要创建的 Swap 大小 (单位 MB，如 1024。直接回车跳过): " swap_size
     if [[ -n "$swap_size" && "$swap_size" -gt 0 ]]; then
-        echo "正在为您创建 ${swap_size}MB 的 Swap..."
+        echo -e "\033[1;33m--> 正在清理旧的 Swap 设置 (如果存在)...\033[0m"
+        # 停用并删除旧的 /swapfile
+        if grep -q "/swapfile" /proc/swaps; then
+            swapoff /swapfile
+        fi
+        if [ -f "/swapfile" ]; then
+            rm -f /swapfile
+        fi
+
+        echo -e "\033[1;33m--> 正在为您重新创建 ${swap_size}MB 的 Swap...\033[0m"
         fallocate -l ${swap_size}M /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=$swap_size
         chmod 600 /swapfile
         mkswap /swapfile
         swapon /swapfile
-        if ! grep -q "/swapfile" /etc/fstab; then
+        # 确保 fstab 中有挂载项且不重复
+        if ! grep -q "/swapfile none swap sw 0 0" /etc/fstab; then
             echo "/swapfile none swap sw 0 0" >> /etc/fstab
         fi
-        echo -e "\033[1;32mSwap 设置完成！\033[0m"
+        echo -e "\033[1;32mSwap 设置完成！当前系统内存及 Swap 状态：\033[0m"
+        free -m
     fi
     echo ""
     read -n 1 -s -r -p "按任意键返回主菜单..."
@@ -159,7 +170,7 @@ manage_kernel() {
             echo "1. 安装 稳定版 云内核"
             echo "2. 安装 最新版 云内核 (${OS_CODENAME}-backports)"
         elif [ "$OS_ID" == "ubuntu" ]; then
-            echo "1. 安装 稳定版 虚拟化内核 (linux-virtual)"
+            echo "1. 安装 稳定版 虚拟化内核"
             echo "2. 安装 最新版 官方 HWE 内核 (硬件使能新版支持)"
         fi
         
@@ -169,7 +180,7 @@ manage_kernel() {
         echo "-------------------------"
         read -p "请选择 [0-4]: " kernel_choice
 
-        TMP_LOG=$(mktemp) # 初始化一个日志文件用来捕获安装状态
+        TMP_LOG=$(mktemp) 
 
         case "$kernel_choice" in
             1)
@@ -224,7 +235,6 @@ manage_kernel() {
                 ;;
         esac
 
-        # 分析捕获的安装日志，判断是否真正执行了更新
         if grep -qiE "already the newest version|0 upgraded, 0 newly installed|Upgrading: 0, Installing: 0" "$TMP_LOG"; then
             echo -e "\n\033[1;32m-> 经系统检测，当前目标内核已是最新版本，无需重启！\033[0m"
             rm -f "$TMP_LOG"
@@ -234,7 +244,6 @@ manage_kernel() {
 
         rm -f "$TMP_LOG"
 
-        # 确定有新内核被安装后，才执行以下逻辑
         touch "/root/.vps_need_autoremove"
         echo -e "\n\033[1;32m新内核包安装/更新动作完成！\033[0m"
         echo -e "\033[1;31m注意：因系统保护机制，运行中的旧内核无法在此刻卸载。\033[0m"
@@ -250,16 +259,16 @@ manage_kernel() {
     done
 }
 
-# ==========================================
-# 网络与流媒体测试菜单
-# ==========================================
+# =====================================
+# 综合测试测试菜单
+# =====================================
 run_network_tests() {
     while true; do
         clear
         echo -e "\033[1;36m=== 综合测试 ===\033[0m"
         echo "1. NodeQuality 综合测试"
         echo "2. IP 质量与欺诈分数查询"
-        echo "3. 流媒体解锁测试 (含 Ins 状态)"
+        echo "3. 流媒体解锁测试 (含 Instagram 状态)"
         echo "4. 流媒体解锁测试 (经典版)"
         echo "5. 硬盘测速与性能测试 (Aniverse)"
         echo "0. 返回主菜单"
@@ -314,20 +323,20 @@ run_network_tests() {
 main_menu() {
     while true; do
         clear
-        echo -e "\033[1;35m=======================================================\033[0m"
-        echo -e "\033[1;36m             VPS 综合环境配置管理工具 1.5                \033[0m"
-        echo -e "\033[1;35m=======================================================\033[0m"
+        echo -e "\033[1;35m=========================================================\033[0m"
+        echo -e "\033[1;36m               VPS 综合环境配置管理工具1.6                 \033[0m"
+        echo -e "\033[1;35m=========================================================\033[0m"
         echo -e " \033[1;34m系统环境:\033[0m \033[1;37m${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})\033[0m"
         echo -e " \033[1;34m当前内核:\033[0m \033[1;37m${KERNEL_VER}\033[0m"
         echo -e " \033[1;34m内网 IPv4:\033[0m \033[1;37m${LOCAL_IP}\033[0m"
         echo -e " \033[1;34m公网 IPv4:\033[0m \033[1;32m${PUBLIC_IPV4}\033[0m"
         echo -e " \033[1;34m公网 IPv6:\033[0m \033[1;32m${PUBLIC_IPV6}\033[0m"
-        echo -e "\033[1;35m-------------------------------------------------------\033[0m"
+        echo -e "\033[1;35m---------------------------------------------------------\033[0m"
         echo "  1. 设置 主机名 (Hostname) 与 Swap 虚拟内存"
         echo "  2. 安装 与管理 系统自适应云内核"
-        echo "  3. 运行 综合测试 (脚本合集)"
+        echo "  3. 运行 网络与流媒体综合测试 (脚本合集)"
         echo "  0. 退出脚本"
-        echo -e "\033[1;35m=======================================================\033[0m"
+        echo -e "\033[1;35m=========================================================\033[0m"
         
         read -p "请输入对应的数字选项: " choice
         case "$choice" in
