@@ -329,13 +329,109 @@ run_eshoes() {
 }
 
 # ==========================================
+# 一键安装 Docker 与 Docker Compose
+# ==========================================
+install_docker() {
+    clear
+    echo -e "\033[1;36m========= 安装 Docker 与 Docker Compose =========\033[0m"
+    if command -v docker &> /dev/null; then
+        echo -e "\033[1;32m检测到 Docker 已安装！当前版本信息如下：\033[0m"
+        docker --version
+        # 检测 Compose 插件或独立版
+        if docker compose version &> /dev/null; then
+            docker compose version
+        elif command -v docker-compose &> /dev/null; then
+            docker-compose --version
+        fi
+    else
+        echo -e "\033[1;33m--> 正在通过官方源一键安装 Docker 与 Docker Compose 插件...\033[0m"
+        curl -fsSL https://get.docker.com | bash -s docker
+        systemctl enable --now docker
+        echo -e "\033[1;32mDocker 环境安装与启动完成！\033[0m"
+        docker --version
+        docker compose version
+    fi
+    echo ""
+    read -n 1 -s -r -p "按任意键返回主菜单..."
+}
+
+# ==========================================
+# 系统 IPv6 加固管理 (开启/禁用)
+# ==========================================
+manage_ipv6() {
+    while true; do
+        clear
+        echo -e "\033[1;36m=========== 系统 IPv6 状态管理 ===========\033[0m"
+        echo "1. 彻底禁用 IPv6 (加固防恢复版: sysctl + GRUB + modprobe)"
+        echo "2. 恢复开启 IPv6 (完美兼容现有 BBR 规则)"
+        echo "0. 返回主菜单"
+        echo "------------------------------------------"
+        read -p "请选择操作 [0-2]: " ipv6_choice
+
+        case "$ipv6_choice" in
+            1)
+                echo -e "\033[1;33m--> 正在执行 IPv6 加固禁用...\033[0m"
+                # 1. 独立配置文件修改
+                cat > /etc/sysctl.d/99-disable-ipv6.conf <<EOF
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
+EOF
+                sysctl --system > /dev/null 2>&1
+                
+                # 2. 修改 GRUB 内核参数
+                if [ -f /etc/default/grub ]; then
+                    if ! grep -q "ipv6.disable=1" /etc/default/grub; then
+                        sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="/GRUB_CMDLINE_LINUX_DEFAULT="ipv6.disable=1 /' /etc/default/grub
+                        update-grub > /dev/null 2>&1
+                    fi
+                fi
+                
+                # 3. 添加黑名单
+                echo "blacklist ipv6" > /etc/modprobe.d/blacklist-ipv6.conf
+                
+                echo -e "\033[1;32mIPv6 禁用规则已注入！(推荐重启服务器以确保 GRUB 内核参数彻底生效)\033[0m"
+                PUBLIC_IPV6="已禁用"
+                read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            2)
+                echo -e "\033[1;33m--> 正在清理禁用规则，恢复 IPv6...\033[0m"
+                # 1. 删除独立禁用配置并实时重置参数
+                rm -f /etc/sysctl.d/99-disable-ipv6.conf
+                sysctl -w net.ipv6.conf.all.disable_ipv6=0 > /dev/null 2>&1
+                sysctl -w net.ipv6.conf.default.disable_ipv6=0 > /dev/null 2>&1
+                sysctl -w net.ipv6.conf.lo.disable_ipv6=0 > /dev/null 2>&1
+                
+                # 2. 恢复 GRUB 参数
+                if [ -f /etc/default/grub ]; then
+                    sed -i 's/ipv6.disable=1 //' /etc/default/grub
+                    update-grub > /dev/null 2>&1
+                fi
+                
+                # 3. 移除黑名单
+                rm -f /etc/modprobe.d/blacklist-ipv6.conf
+                
+                # 4. 重新加载系统所有 sysctl 配置，确保 BBR 不受影响
+                sysctl --system > /dev/null 2>&1
+                
+                echo -e "\033[1;32mIPv6 恢复规则已应用！(部分云厂商网络需重启服务器才能重新获取 IPv6)\033[0m"
+                PUBLIC_IPV6=$(curl -s6 --max-time 3 ifconfig.me || curl -s6 --max-time 3 ident.me || echo "无 IPv6")
+                read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            0) return ;;
+            *) echo "无效的选择，请重新输入！" && sleep 1 ;;
+        esac
+    done
+}
+
+# ==========================================
 # 主菜单
 # ==========================================
 main_menu() {
     while true; do
         clear
         echo -e "\033[1;35m=========================================================\033[0m"
-        echo -e "\033[1;36m                 VPS 综合环境配置管理工具 1.7              \033[0m"
+        echo -e "\033[1;36m                 VPS 综合环境配置管理工具 1.8              \033[0m"
         echo -e "\033[1;35m=========================================================\033[0m"
         echo -e " \033[1;34m系统环境:\033[0m \033[1;37m${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})\033[0m"
         echo -e " \033[1;34m当前内核:\033[0m \033[1;37m${KERNEL_VER}\033[0m"
@@ -347,6 +443,8 @@ main_menu() {
         echo "  2. 安装 与管理 系统自适应云内核"
         echo "  3. 运行 网络与流媒体综合测试 (脚本合集)"
         echo "  4. 安装 代理节点一键搭建脚本 (E-Shoes)"
+        echo "  5. 安装 Docker 与 Docker Compose 容器引擎"
+        echo "  6. 管理 系统 IPv6 状态 (加固禁用/恢复开启)"
         echo "  0. 退出脚本"
         echo -e "\033[1;35m=========================================================\033[0m"
         
@@ -356,6 +454,8 @@ main_menu() {
             2) manage_kernel ;;
             3) run_network_tests ;;
             4) run_eshoes ;;
+            5) install_docker ;;
+            6) manage_ipv6 ;;
             0) echo "已退出脚本。"; exit 0 ;;
             *) echo "输入错误，请重新输入" && sleep 1 ;;
         esac
