@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# ===================================================
-# VPS 综合初始化与管理脚本 (Debian/Ubuntu 完美自适应版)
-# ===================================================
+# ==============================================
+# VPS 综合初始化与管理脚本 (集成 E-Shoes 节点搭建)
+# ==============================================
 
 # 确保使用 root 权限运行
 if [[ $EUID -ne 0 ]]; then
@@ -134,7 +134,6 @@ setup_hostname_swap() {
     read -p "请输入需要创建的 Swap 大小 (单位 MB，如 1024。直接回车跳过): " swap_size
     if [[ -n "$swap_size" && "$swap_size" -gt 0 ]]; then
         echo -e "\033[1;33m--> 正在清理旧的 Swap 设置 (如果存在)...\033[0m"
-        # 停用并删除旧的 /swapfile
         if grep -q "/swapfile" /proc/swaps; then
             swapoff /swapfile
         fi
@@ -147,7 +146,6 @@ setup_hostname_swap() {
         chmod 600 /swapfile
         mkswap /swapfile
         swapon /swapfile
-        # 确保 fstab 中有挂载项且不重复
         if ! grep -q "/swapfile none swap sw 0 0" /etc/fstab; then
             echo "/swapfile none swap sw 0 0" >> /etc/fstab
         fi
@@ -164,20 +162,20 @@ setup_hostname_swap() {
 manage_kernel() {
     while true; do
         clear
-        echo -e "\033[1;36m===== ${OS_ID^} 系统内核自适应管理 =====\033[0m"
+        echo -e "\033[1;36m====== ${OS_ID^} 系统内核自适应管理 ======\033[0m"
         
         if [ "$OS_ID" == "debian" ]; then
-            echo "1. 安装 稳定版 云内核"
-            echo "2. 安装 最新版 云内核 (${OS_CODENAME}-backports)"
+            echo "1. 安装 稳定版 云内核 (linux-image-cloud-amd64)"
+            echo "2. 安装 最新版 云内核 (${OS_CODENAME}-backports 仓库)"
         elif [ "$OS_ID" == "ubuntu" ]; then
-            echo "1. 安装 稳定版 虚拟化内核"
+            echo "1. 安装 稳定版 虚拟化内核 (linux-virtual)"
             echo "2. 安装 最新版 官方 HWE 内核 (硬件使能新版支持)"
         fi
         
         echo "3. 查看当前系统已安装的所有内核包"
         echo "4. 手动深度清理旧版无用内核"
         echo "0. 返回主菜单"
-        echo "-------------------------"
+        echo "-------------------------------"
         read -p "请选择 [0-4]: " kernel_choice
 
         TMP_LOG=$(mktemp) 
@@ -259,20 +257,20 @@ manage_kernel() {
     done
 }
 
-# =====================================
-# 综合测试测试菜单
-# =====================================
+# ==========================================
+# 测试菜单
+# ==========================================
 run_network_tests() {
     while true; do
         clear
-        echo -e "\033[1;36m======== 综合测试 ========\033[0m"
-        echo "1. NodeQuality 综合测试"
+        echo -e "\033[1;36m======= 综合测试 =======\033[0m"
+        echo "1. NodeQuality 综合节点测试"
         echo "2. IP 质量与欺诈分数查询"
-        echo "3. 流媒体解锁测试 (含 Instagram 状态)"
+        echo "3. 流媒体解锁测试 (含 Ins 状态)"
         echo "4. 流媒体解锁测试 (经典版)"
         echo "5. 硬盘测速与性能测试 (Aniverse)"
         echo "0. 返回主菜单"
-        echo "-----------------------------------"
+        echo "-----------------------------"
         read -p "请选择测试项 [0-5]: " test_choice
 
         case "$test_choice" in
@@ -318,13 +316,26 @@ run_network_tests() {
 }
 
 # ==========================================
+# 运行 E-Shoes 节点搭建脚本
+# ==========================================
+run_eshoes() {
+    clear
+    echo -e "\033[1;36m=== 启动 E-Shoes 代理节点一键搭建脚本 ===\033[0m"
+    echo -e "\033[1;33m--> 正在拉取并执行最新版 E-Shoes...\033[0m"
+    # 强制使用 IPv4 下载执行，确保兼容性
+    wget -4 --no-check-certificate -qO eshoes.sh https://raw.githubusercontent.com/xtonly/E-Shoes/refs/heads/main/eshoes.sh && chmod +x eshoes.sh && ./eshoes.sh
+    echo ""
+    read -n 1 -s -r -p "E-Shoes 脚本执行结束，按任意键返回主菜单..."
+}
+
+# ==========================================
 # 主菜单
 # ==========================================
 main_menu() {
     while true; do
         clear
         echo -e "\033[1;35m=========================================================\033[0m"
-        echo -e "\033[1;36m               VPS 综合环境配置管理工具1.6                 \033[0m"
+        echo -e "\033[1;36m                 VPS 综合环境配置管理工具 1.7              \033[0m"
         echo -e "\033[1;35m=========================================================\033[0m"
         echo -e " \033[1;34m系统环境:\033[0m \033[1;37m${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})\033[0m"
         echo -e " \033[1;34m当前内核:\033[0m \033[1;37m${KERNEL_VER}\033[0m"
@@ -334,7 +345,8 @@ main_menu() {
         echo -e "\033[1;35m---------------------------------------------------------\033[0m"
         echo "  1. 设置 主机名 (Hostname) 与 Swap 虚拟内存"
         echo "  2. 安装 与管理 系统自适应云内核"
-        echo "  3. 运行 综合测试 (脚本合集)"
+        echo "  3. 运行 网络与流媒体综合测试 (脚本合集)"
+        echo "  4. 安装 代理节点一键搭建脚本 (E-Shoes)"
         echo "  0. 退出脚本"
         echo -e "\033[1;35m=========================================================\033[0m"
         
@@ -343,6 +355,7 @@ main_menu() {
             1) setup_hostname_swap ;;
             2) manage_kernel ;;
             3) run_network_tests ;;
+            4) run_eshoes ;;
             0) echo "已退出脚本。"; exit 0 ;;
             *) echo "输入错误，请重新输入" && sleep 1 ;;
         esac
