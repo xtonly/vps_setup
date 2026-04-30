@@ -333,7 +333,7 @@ run_eshoes() {
 # ==========================================
 install_docker() {
     clear
-    echo -e "\033[1;36m========= 安装 Docker 与 Docker Compose =========\033[0m"
+    echo -e "\033[1;36m============ 安装 Docker 与 Docker Compose ============\033[0m"
     if command -v docker &> /dev/null; then
         echo -e "\033[1;32m检测到 Docker 已安装！当前版本信息如下：\033[0m"
         docker --version
@@ -361,11 +361,11 @@ install_docker() {
 manage_ipv6() {
     while true; do
         clear
-        echo -e "\033[1;36m=========== 系统 IPv6 状态管理 ===========\033[0m"
-        echo "1. 彻底禁用 IPv6 (加固防恢复版: sysctl + GRUB + modprobe)"
+        echo -e "\033[1;36m============= 系统 IPv6 状态管理 =============\033[0m"
+        echo "1. 彻底禁用 IPv6 (加固防恢复版: sysctl/GRUB/Modprobe)"
         echo "2. 恢复开启 IPv6 (完美兼容现有 BBR 规则)"
         echo "0. 返回主菜单"
-        echo "------------------------------------------"
+        echo "----------------------------------------------"
         read -p "请选择操作 [0-2]: " ipv6_choice
 
         case "$ipv6_choice" in
