@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==========================================
-# VPS 综合初始化与管理脚本 (测试集成版)
+# VPS 综合初始化与管理脚本 (Debian/Ubuntu 自适应版)
 # ==========================================
 
 # 确保使用 root 权限运行
@@ -12,21 +12,35 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 
-# 获取 VPS 基础信息
+# ==========================================
+# 获取 VPS 基础信息与系统识别
+# ==========================================
 LOCAL_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v "127.0.0.1" | head -n 1)
-PUBLIC_IPV4=$(curl -s4 --max-time 3 ifconfig.me || curl -s4 --max-time 3 api.ipify.org || echo "无法获取或无 IPv4")
+PUBLIC_IPV4=$(curl -s4 --max-time 3 ifconfig.me || curl -s4 --max-time 3 api.ipify.org || echo "无法获取")
 PUBLIC_IPV6=$(curl -s6 --max-time 3 ifconfig.me || curl -s6 --max-time 3 ident.me || echo "无 IPv6")
-OS_VERSION=$(grep -oP '(?<=PRETTY_NAME=").*(?=")' /etc/os-release || echo "未知系统版本")
 KERNEL_VER=$(uname -r)
 
+# 解析系统版本与代号 (自适应核心)
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS_ID=${ID}                     # debian 或 ubuntu
+    OS_CODENAME=${VERSION_CODENAME} # bookworm, jammy, trixie 等
+    OS_VER=${VERSION_ID}            # 11, 12, 22.04, 24.04 等
+    SYS_PRETTY_NAME=${PRETTY_NAME}
+else
+    echo -e "\033[1;31m错误：无法识别的操作系统，此脚本仅支持 Debian / Ubuntu。\033[0m"
+    exit 1
+fi
+
 # ==========================================
-# 深度清理旧内核函数
+# 深度清理旧内核函数 (双系统兼容)
 # ==========================================
 purge_old_kernels() {
     echo -e "\033[1;33m--> 正在深度扫描并清除旧版无用内核...\033[0m"
     CURRENT_KERNEL=$(uname -r)
     
-    OLD_PACKAGES=$(dpkg -l | grep -E '^ii  linux-(image|headers|modules|base|binary)-[0-9]' | awk '{print $2}' | grep -v "$CURRENT_KERNEL")
+    # 正则覆盖 Debian 和 Ubuntu 特有的包前缀，规避无版本号的 metapackage
+    OLD_PACKAGES=$(dpkg -l | grep -E '^ii  linux-(image|headers|modules|base|binary|tools|kbuild)-[0-9]' | awk '{print $2}' | grep -v "$CURRENT_KERNEL")
     
     if [ -n "$OLD_PACKAGES" ]; then
         for pkg in $OLD_PACKAGES; do
@@ -42,12 +56,12 @@ purge_old_kernels() {
 }
 
 # ==========================================
-# 1. & 2. 脚本进入前自动初始化 (仅执行一次)
+# 1. & 2. 脚本进入前自动初始化
 # ==========================================
 auto_init() {
     if [ ! -f "/root/.vps_init_done" ]; then
         clear
-        echo -e "\033[1;36m[首次运行] 正在自动初始化基础环境，请稍候...\033[0m"
+        echo -e "\033[1;36m[首次运行] 正在自动初始化 ${SYS_PRETTY_NAME} 基础环境...\033[0m"
         echo "------------------------------------------------"
         
         echo -e "\033[1;33m--> 更新系统并安装基础依赖...\033[0m"
@@ -64,13 +78,24 @@ auto_init() {
         systemctl enable --now chrony
 
         echo -e "\033[1;33m--> 应用 BBR + FQ 强力持久化配置...\033[0m"
-        sudo bash -c 'FILE="/etc/sysctl.d/99-bbr-optimization.conf"; rm -f $FILE; echo "net.core.default_qdisc = fq" >> $FILE; echo "net.ipv4.tcp_congestion_control = bbr" >> $FILE; sysctl --system > /dev/null; echo -e "\n\033[1;35m======================================\033[0m"; echo -e "\033[1;35m    BBR 强力持久化配置已应用       \033[0m"; echo -e "\033[1;35m======================================\033[0m"; printf "\033[1;34m%-25s\033[0m : \033[1;33m%s\033[0m\n" "当前队列算法" "$(sysctl -n net.core.default_qdisc)"; printf "\033[1;34m%-25s\033[0m : \033[1;33m%s\033[0m\n" "当前拥塞控制" "$(sysctl -n net.ipv4.tcp_congestion_control)"; printf "\033[1;34m%-25s\033[0m : \033[1;33m%s\033[0m\n" "配置文件路径" "$FILE"; echo -e "\033[1;35m======================================\033[0m\n"'
+        sudo bash -c 'FILE="/etc/sysctl.d/99-bbr-optimization.conf"; rm -f $FILE; echo "net.core.default_qdisc = fq" >> $FILE; echo "net.ipv4.tcp_congestion_control = bbr" >> $FILE; sysctl --system > /dev/null; echo -e "\n\033[1;35m======================================\033[0m"; echo -e "\033[1;35m    BBR 强力持久化配置已应用       \033[0m"; echo -e "\033[1;35m======================================\033[0m\n"'
 
-        echo -e "\033[1;33m--> 写入 trixie-backports 软件源...\033[0m"
-        cat > /etc/apt/sources.list.d/trixie-backports.list <<'EOF'
-deb http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
+        # 自适应写入 Backports 源 (仅限 Debian)
+        if [ "$OS_ID" == "debian" ]; then
+            echo -e "\033[1;33m--> 检测到 Debian 系统，正在配置 ${OS_CODENAME}-backports 软件源...\033[0m"
+            # Debian 11 没有 non-free-firmware，需要特殊判断兼容
+            if [ "$OS_VER" == "11" ]; then
+                REPO_COMPONENTS="main contrib non-free"
+            else
+                REPO_COMPONENTS="main contrib non-free non-free-firmware"
+            fi
+            cat > /etc/apt/sources.list.d/${OS_CODENAME}-backports.list <<EOF
+deb http://deb.debian.org/debian ${OS_CODENAME}-backports $REPO_COMPONENTS
 EOF
-        apt-get -y update
+            apt-get -y update
+        elif [ "$OS_ID" == "ubuntu" ]; then
+            echo -e "\033[1;32m--> 检测到 Ubuntu 系统，将使用原生 HWE/Updates 机制，无需第三方源。\033[0m"
+        fi
 
         touch "/root/.vps_init_done"
         echo -e "\033[1;32m[初始化完成] 基础环境自动配置完毕！\033[0m\n"
@@ -124,15 +149,23 @@ setup_hostname_swap() {
 }
 
 # ==========================================
-# 安装与管理云内核 (Cloud Kernel)
+# 动态安装与管理云内核 (系统自适应)
 # ==========================================
 manage_kernel() {
     while true; do
         clear
-        echo -e "\033[1;36m=== Debian 云内核 (Cloud Kernel) 管理 ===\033[0m"
-        echo "1. 安装 稳定版 云内核 (linux-image-cloud-amd64)"
-        echo "2. 安装 最新版 云内核 (trixie-backports 仓库)"
-        echo "3. 查看当前系统已安装的所有内核"
+        echo -e "\033[1;36m=== ${OS_ID^} 系统内核自适应管理 ===\033[0m"
+        
+        # 针对不同系统的动态菜单展示
+        if [ "$OS_ID" == "debian" ]; then
+            echo "1. 安装 稳定版 云内核 (linux-image-cloud-amd64)"
+            echo "2. 安装 最新版 云内核 (${OS_CODENAME}-backports 仓库)"
+        elif [ "$OS_ID" == "ubuntu" ]; then
+            echo "1. 安装 稳定版 虚拟化内核 (linux-virtual)"
+            echo "2. 安装 最新版 官方 HWE 内核 (硬件使能新版支持)"
+        fi
+        
+        echo "3. 查看当前系统已安装的所有内核包"
         echo "4. 手动深度清理旧版无用内核"
         echo "0. 返回主菜单"
         echo "-------------------------"
@@ -140,13 +173,29 @@ manage_kernel() {
 
         case "$kernel_choice" in
             1)
-                echo -e "\033[1;33m--> 开始安装稳定版云内核...\033[0m"
-                apt update -y && apt install linux-image-cloud-amd64 -y
+                echo -e "\033[1;33m--> 正在处理稳定版内核安装请求...\033[0m"
+                if [ "$OS_ID" == "debian" ]; then
+                    apt update -y && apt install linux-image-cloud-amd64 -y
+                else
+                    apt update -y && apt install linux-virtual -y
+                fi
                 touch "/root/.vps_need_autoremove"
                 ;;
             2)
-                echo -e "\033[1;33m--> 开始安装 trixie-backports 最新版云内核...\033[0m"
-                apt update -y && apt install -t trixie-backports linux-image-cloud-amd64 -y
+                echo -e "\033[1;33m--> 正在处理最新版内核安装请求...\033[0m"
+                apt update -y
+                if [ "$OS_ID" == "debian" ]; then
+                    apt install -t ${OS_CODENAME}-backports linux-image-cloud-amd64 -y
+                else
+                    HWE_PKG="linux-generic-hwe-${OS_VER}"
+                    # 检查是否存在当前版本的 HWE 包，不存在则 fallback 到最新 generic
+                    if apt-cache show $HWE_PKG >/dev/null 2>&1; then
+                        apt install $HWE_PKG -y
+                    else
+                        echo -e "\033[1;33m当前版本 ($OS_VER) 无独立 HWE 分支，正在安装 linux-generic...\033[0m"
+                        apt install linux-generic -y
+                    fi
+                fi
                 touch "/root/.vps_need_autoremove"
                 ;;
             3)
@@ -173,7 +222,7 @@ manage_kernel() {
                 ;;
         esac
 
-        echo -e "\n\033[1;32m新内核包安装完成！\033[0m"
+        echo -e "\n\033[1;32m新内核包安装/更新动作完成！\033[0m"
         echo -e "\033[1;31m注意：因系统保护机制，运行中的旧内核无法在此刻卸载。\033[0m"
         echo -e "\033[1;33m本脚本已设定自动任务，重启并再次运行本脚本时会自动清除旧内核。\033[0m\n"
         read -p "是否立即重启服务器以应用新内核？(y/n) " is_reboot
@@ -188,7 +237,7 @@ manage_kernel() {
 }
 
 # ==========================================
-# 网络与流媒体测试菜单 (新增)
+# 网络与流媒体测试菜单
 # ==========================================
 run_network_tests() {
     while true; do
@@ -239,13 +288,8 @@ run_network_tests() {
                 echo ""
                 read -n 1 -s -r -p "测试结束，按任意键返回..."
                 ;;
-            0)
-                return
-                ;;
-            *)
-                echo "无效的选择，请重新输入！"
-                sleep 1
-                ;;
+            0) return ;;
+            *) echo "无效的选择，请重新输入！" && sleep 1 ;;
         esac
     done
 }
@@ -257,16 +301,16 @@ main_menu() {
     while true; do
         clear
         echo -e "\033[1;35m===========================================\033[0m"
-        echo -e "\033[1;36m        VPS 综合环境配置管理工具 1.2         \033[0m"
+        echo -e "\033[1;36m       VPS 综合环境配置管理工具 1.3          \033[0m"
         echo -e "\033[1;35m===========================================\033[0m"
-        echo -e " \033[1;34m系统版本:\033[0m \033[1;37m${OS_VERSION}\033[0m"
-        echo -e " \033[1;34m内核版本:\033[0m \033[1;37m${KERNEL_VER}\033[0m"
+        echo -e " \033[1;34m系统环境:\033[0m \033[1;37m${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})\033[0m"
+        echo -e " \033[1;34m当前内核:\033[0m \033[1;37m${KERNEL_VER}\033[0m"
         echo -e " \033[1;34m内网 IPv4:\033[0m \033[1;37m${LOCAL_IP}\033[0m"
         echo -e " \033[1;34m公网 IPv4:\033[0m \033[1;32m${PUBLIC_IPV4}\033[0m"
         echo -e " \033[1;34m公网 IPv6:\033[0m \033[1;32m${PUBLIC_IPV6}\033[0m"
         echo -e "\033[1;35m-------------------------------------------\033[0m"
         echo "  1. 设置 主机名 (Hostname) 与 Swap 虚拟内存"
-        echo "  2. 安装 与管理 Debian 云内核"
+        echo "  2. 安装 与管理 系统自适应云内核"
         echo "  3. 运行 网络与流媒体综合测试 (脚本合集)"
         echo "  0. 退出脚本"
         echo -e "\033[1;35m===========================================\033[0m"
