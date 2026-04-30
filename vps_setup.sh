@@ -265,14 +265,14 @@ manage_kernel() {
 run_network_tests() {
     while true; do
         clear
-        echo -e "\033[1;36m=== 综合测试 ===\033[0m"
+        echo -e "\033[1;36m======== 综合测试 ========\033[0m"
         echo "1. NodeQuality 综合测试"
         echo "2. IP 质量与欺诈分数查询"
         echo "3. 流媒体解锁测试 (含 Instagram 状态)"
         echo "4. 流媒体解锁测试 (经典版)"
         echo "5. 硬盘测速与性能测试 (Aniverse)"
         echo "0. 返回主菜单"
-        echo "-------------------------"
+        echo "-----------------------------------"
         read -p "请选择测试项 [0-5]: " test_choice
 
         case "$test_choice" in
