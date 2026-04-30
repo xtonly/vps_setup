@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# ===============================================
-# VPS 综合初始化与管理脚本 (Debian/Ubuntu 自适应版)
-# ===============================================
+# ===================================================
+# VPS 综合初始化与管理脚本 (Debian/Ubuntu 完美自适应版)
+# ===================================================
 
 # 确保使用 root 权限运行
 if [[ $EUID -ne 0 ]]; then
@@ -83,7 +83,6 @@ auto_init() {
         # 自适应写入 Backports 源 (仅限 Debian)
         if [ "$OS_ID" == "debian" ]; then
             echo -e "\033[1;33m--> 检测到 Debian 系统，正在配置 ${OS_CODENAME}-backports 软件源...\033[0m"
-            # Debian 11 没有 non-free-firmware，需要特殊判断兼容
             if [ "$OS_VER" == "11" ]; then
                 REPO_COMPONENTS="main contrib non-free"
             else
@@ -149,14 +148,13 @@ setup_hostname_swap() {
 }
 
 # ==========================================
-# 动态安装与管理云内核 (系统自适应)
+# 动态安装与管理云内核 (系统自适应 + 智能识别状态)
 # ==========================================
 manage_kernel() {
     while true; do
         clear
         echo -e "\033[1;36m=== ${OS_ID^} 系统内核自适应管理 ===\033[0m"
         
-        # 针对不同系统的动态菜单展示
         if [ "$OS_ID" == "debian" ]; then
             echo "1. 安装 稳定版 云内核 (linux-image-cloud-amd64)"
             echo "2. 安装 最新版 云内核 (${OS_CODENAME}-backports 仓库)"
@@ -171,57 +169,73 @@ manage_kernel() {
         echo "-------------------------"
         read -p "请选择 [0-4]: " kernel_choice
 
+        TMP_LOG=$(mktemp) # 初始化一个日志文件用来捕获安装状态
+
         case "$kernel_choice" in
             1)
                 echo -e "\033[1;33m--> 正在处理稳定版内核安装请求...\033[0m"
+                apt update -y
                 if [ "$OS_ID" == "debian" ]; then
-                    apt update -y && apt install linux-image-cloud-amd64 -y
+                    LC_ALL=C apt install linux-image-cloud-amd64 -y | tee $TMP_LOG
                 else
-                    apt update -y && apt install linux-virtual -y
+                    LC_ALL=C apt install linux-virtual -y | tee $TMP_LOG
                 fi
-                touch "/root/.vps_need_autoremove"
                 ;;
             2)
                 echo -e "\033[1;33m--> 正在处理最新版内核安装请求...\033[0m"
                 apt update -y
                 if [ "$OS_ID" == "debian" ]; then
-                    apt install -t ${OS_CODENAME}-backports linux-image-cloud-amd64 -y
+                    LC_ALL=C apt install -t ${OS_CODENAME}-backports linux-image-cloud-amd64 -y | tee $TMP_LOG
                 else
                     HWE_PKG="linux-generic-hwe-${OS_VER}"
-                    # 检查是否存在当前版本的 HWE 包，不存在则 fallback 到最新 generic
                     if apt-cache show $HWE_PKG >/dev/null 2>&1; then
-                        apt install $HWE_PKG -y
+                        LC_ALL=C apt install $HWE_PKG -y | tee $TMP_LOG
                     else
                         echo -e "\033[1;33m当前版本 ($OS_VER) 无独立 HWE 分支，正在安装 linux-generic...\033[0m"
-                        apt install linux-generic -y
+                        LC_ALL=C apt install linux-generic -y | tee $TMP_LOG
                     fi
                 fi
-                touch "/root/.vps_need_autoremove"
                 ;;
             3)
                 echo -e "\033[1;33m--> 系统当前已安装的内核包列表：\033[0m"
                 dpkg --get-selections | grep linux
                 echo ""
                 read -n 1 -s -r -p "按任意键返回..."
+                rm -f $TMP_LOG
                 continue
                 ;;
             4)
                 purge_old_kernels
                 echo ""
                 read -n 1 -s -r -p "按任意键返回..."
+                rm -f $TMP_LOG
                 continue
                 ;;
             0)
                 KERNEL_VER=$(uname -r)
+                rm -f $TMP_LOG
                 return
                 ;;
             *)
                 echo "无效的选择，请重新输入！"
                 sleep 1
+                rm -f $TMP_LOG
                 continue
                 ;;
         esac
 
+        # 分析捕获的安装日志，判断是否真正执行了更新
+        if grep -qiE "already the newest version|0 upgraded, 0 newly installed|Upgrading: 0, Installing: 0" "$TMP_LOG"; then
+            echo -e "\n\033[1;32m-> 经系统检测，当前目标内核已是最新版本，无需重启！\033[0m"
+            rm -f "$TMP_LOG"
+            read -n 1 -s -r -p "按任意键返回..."
+            continue
+        fi
+
+        rm -f "$TMP_LOG"
+
+        # 确定有新内核被安装后，才执行以下逻辑
+        touch "/root/.vps_need_autoremove"
         echo -e "\n\033[1;32m新内核包安装/更新动作完成！\033[0m"
         echo -e "\033[1;31m注意：因系统保护机制，运行中的旧内核无法在此刻卸载。\033[0m"
         echo -e "\033[1;33m本脚本已设定自动任务，重启并再次运行本脚本时会自动清除旧内核。\033[0m\n"
@@ -301,7 +315,7 @@ main_menu() {
     while true; do
         clear
         echo -e "\033[1;35m===========================================\033[0m"
-        echo -e "\033[1;36m       VPS 综合环境配置管理工具 1.3          \033[0m"
+        echo -e "\033[1;36m       VPS 综合环境配置管理工具 1.4          \033[0m"
         echo -e "\033[1;35m===========================================\033[0m"
         echo -e " \033[1;34m系统环境:\033[0m \033[1;37m${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})\033[0m"
         echo -e " \033[1;34m当前内核:\033[0m \033[1;37m${KERNEL_VER}\033[0m"
