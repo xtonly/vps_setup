@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==========================================
-# VPS 综合初始化与管理脚本
+# VPS 综合初始化与管理脚本 (修正加强版)
 # ==========================================
 
 # 确保使用 root 权限运行
@@ -12,9 +12,12 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 
-# 精准获取内外网 IP (解决 AWS 等 NAT 机型的识别问题)
+# 获取 VPS 基础信息
 LOCAL_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v "127.0.0.1" | head -n 1)
-PUBLIC_IP=$(curl -s4 --max-time 3 ifconfig.me || curl -s4 --max-time 3 api.ipify.org || curl -s4 --max-time 3 ipv4.icanhazip.com || echo "无法获取公网IP")
+PUBLIC_IPV4=$(curl -s4 --max-time 3 ifconfig.me || curl -s4 --max-time 3 api.ipify.org || echo "无法获取或无 IPv4")
+PUBLIC_IPV6=$(curl -s6 --max-time 3 ifconfig.me || curl -s6 --max-time 3 ident.me || echo "无 IPv6")
+OS_VERSION=$(grep -oP '(?<=PRETTY_NAME=").*(?=")' /etc/os-release || echo "未知系统版本")
+KERNEL_VER=$(uname -r)
 
 # ==========================================
 # 1. & 2. 脚本进入前自动初始化 (仅执行一次)
@@ -40,7 +43,6 @@ auto_init() {
         echo -e "\033[1;33m--> 安装 chrony 并配置时间自动同步...\033[0m"
         apt install -y chrony
         systemctl enable --now chrony
-        timedatectl status | grep -i "synchronized"
 
         # 4. 设置 BBR+FC
         echo -e "\033[1;33m--> 应用 BBR + FQ 强力持久化配置...\033[0m"
@@ -61,6 +63,22 @@ EOF
 }
 
 # ==========================================
+# 重启后的旧内核自动清理机制
+# ==========================================
+check_kernel_cleanup() {
+    if [ -f "/root/.vps_need_autoremove" ]; then
+        clear
+        echo -e "\033[1;36m[系统维护] 检测到您之前更换了内核并已重启系统。\033[0m"
+        echo -e "\033[1;33m--> 正在自动清除遗留的旧版无用内核，请稍候...\033[0m"
+        apt autoremove --purge -y
+        update-grub 2>/dev/null
+        rm -f "/root/.vps_need_autoremove"
+        echo -e "\033[1;32m旧内核清理完毕，系统已达到最佳状态！\033[0m\n"
+        sleep 3
+    fi
+}
+
+# ==========================================
 # 3. 设置主机名与 Swap 虚拟内存
 # ==========================================
 setup_hostname_swap() {
@@ -75,48 +93,66 @@ setup_hostname_swap() {
     fi
 
     echo -e "\n\033[1;33m[2/2] Swap 虚拟内存设置\033[0m"
-    read -p "请输入需要创建的 Swap 大小 (单位 MB，如 1024。直接回车或输入0跳过): " swap_size
+    read -p "请输入需要创建的 Swap 大小 (单位 MB，如 1024。直接回车跳过): " swap_size
     if [[ -n "$swap_size" && "$swap_size" -gt 0 ]]; then
         echo "正在为您创建 ${swap_size}MB 的 Swap..."
         fallocate -l ${swap_size}M /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=$swap_size
         chmod 600 /swapfile
         mkswap /swapfile
         swapon /swapfile
-        # 写入 fstab 实现开机挂载
         if ! grep -q "/swapfile" /etc/fstab; then
             echo "/swapfile none swap sw 0 0" >> /etc/fstab
         fi
-        echo -e "\033[1;32mSwap 设置完成！当前内存状态如下：\033[0m"
-        free -h
+        echo -e "\033[1;32mSwap 设置完成！\033[0m"
     fi
     echo ""
     read -n 1 -s -r -p "按任意键返回主菜单..."
 }
 
 # ==========================================
-# 4. 安装云内核 (Cloud Kernel)
+# 4. 安装与管理云内核 (Cloud Kernel)
 # ==========================================
-install_cloud_kernel() {
+manage_kernel() {
     while true; do
         clear
-        echo -e "\033[1;36m=== 安装 Debian 云内核 (Cloud Kernel) ===\033[0m"
+        echo -e "\033[1;36m=== Debian 云内核 (Cloud Kernel) 管理 ===\033[0m"
         echo "1. 安装 稳定版 云内核 (linux-image-cloud-amd64)"
         echo "2. 安装 最新版 云内核 (trixie-backports 仓库)"
+        echo "3. 查看当前系统已安装的所有内核"
+        echo "4. 手动清理旧版无用内核"
         echo "0. 返回主菜单"
         echo "-------------------------"
-        read -p "请选择 [0-2]: " kernel_choice
+        read -p "请选择 [0-4]: " kernel_choice
 
         case "$kernel_choice" in
             1)
                 echo -e "\033[1;33m--> 开始安装稳定版云内核...\033[0m"
-                apt install linux-image-cloud-amd64 -y
+                apt update -y && apt install linux-image-cloud-amd64 -y
+                touch "/root/.vps_need_autoremove"
                 ;;
             2)
                 echo -e "\033[1;33m--> 开始安装 trixie-backports 最新版云内核...\033[0m"
-                apt update -y
-                apt install -t trixie-backports linux-image-cloud-amd64 -y
+                apt update -y && apt install -t trixie-backports linux-image-cloud-amd64 -y
+                touch "/root/.vps_need_autoremove"
+                ;;
+            3)
+                echo -e "\033[1;33m--> 系统当前已安装的内核列表：\033[0m"
+                dpkg --get-selections | grep linux
+                echo ""
+                read -n 1 -s -r -p "按任意键返回..."
+                continue
+                ;;
+            4)
+                echo -e "\033[1;33m--> 正在执行内核清理程序...\033[0m"
+                apt autoremove --purge -y
+                update-grub 2>/dev/null
+                echo -e "\033[1;32m清理完成！当前正在运行的内核不会被删除。\033[0m"
+                read -n 1 -s -r -p "按任意键返回..."
+                continue
                 ;;
             0)
+                # 重新获取最新的内核版本再返回主菜单
+                KERNEL_VER=$(uname -r)
                 return
                 ;;
             *)
@@ -126,20 +162,17 @@ install_cloud_kernel() {
                 ;;
         esac
 
-        # 安装完毕后自动清理与更新引导
-        echo -e "\033[1;33m--> 正在清理系统中不需要的旧内核与冗余依赖...\033[0m"
-        apt autoremove --purge -y
-        update-grub 2>/dev/null
-        
-        echo -e "\n\033[1;32m内核安装及系统清理已全部自动完成！\033[0m"
-        read -p "新内核需要重启才能生效，是否立即重启？(y/n) " is_reboot
+        # 安装完毕提示重启 (只针对选项1和2)
+        echo -e "\n\033[1;32m新内核包安装完成！\033[0m"
+        echo -e "\033[1;31m注意：因系统保护机制，运行中的旧内核无法在此刻卸载。\033[0m"
+        echo -e "\033[1;33m本脚本已设定自动任务，重启并再次运行本脚本时会自动清除旧内核。\033[0m\n"
+        read -p "是否立即重启服务器以应用新内核？(y/n) " is_reboot
         if [[ "$is_reboot" =~ ^[Yy]$ ]]; then
-            echo "系统正在重启，请稍后重新连接 SSH..."
+            echo "系统正在重启，请稍后重新连接 SSH，并再次运行本脚本以完成清理任务..."
             reboot
         else
             echo "已取消自动重启，请记得稍后手动 reboot。"
             read -n 1 -s -r -p "按任意键返回主菜单..."
-            return
         fi
     done
 }
@@ -162,13 +195,16 @@ main_menu() {
     while true; do
         clear
         echo -e "\033[1;35m===========================================\033[0m"
-        echo -e "\033[1;36m           VPS 综合环境配置管理工具\033[0m"
+        echo -e "\033[1;36m        VPS 综合环境配置管理工具 1.0 \033[0m"
         echo -e "\033[1;35m===========================================\033[0m"
-        echo -e " \033[1;34m内网 IPv4:\033[0m ${LOCAL_IP}"
-        echo -e " \033[1;34m公网 IPv4:\033[0m \033[1;32m${PUBLIC_IP}\033[0m"
+        echo -e " \033[1;34m系统版本:\033[0m \033[1;37m${OS_VERSION}\033[0m"
+        echo -e " \033[1;34m内核版本:\033[0m \033[1;37m${KERNEL_VER}\033[0m"
+        echo -e " \033[1;34m内网 IPv4:\033[0m \033[1;37m${LOCAL_IP}\033[0m"
+        echo -e " \033[1;34m公网 IPv4:\033[0m \033[1;32m${PUBLIC_IPV4}\033[0m"
+        echo -e " \033[1;34m公网 IPv6:\033[0m \033[1;32m${PUBLIC_IPV6}\033[0m"
         echo -e "\033[1;35m-------------------------------------------\033[0m"
         echo "  1. 设置 主机名 (Hostname) 与 Swap 虚拟内存"
-        echo "  2. 安装 Debian 云内核 (稳定版/最新版可选)"
+        echo "  2. 安装 与管理 Debian 云内核"
         echo "  3. 运行 硬盘测速与性能测试 (Aniverse)"
         echo "  0. 退出脚本"
         echo -e "\033[1;35m===========================================\033[0m"
@@ -176,7 +212,7 @@ main_menu() {
         read -p "请输入对应的数字选项: " choice
         case "$choice" in
             1) setup_hostname_swap ;;
-            2) install_cloud_kernel ;;
+            2) manage_kernel ;;
             3) run_disk_test ;;
             0) echo "已退出脚本。"; exit 0 ;;
             *) echo "输入错误，请重新输入" && sleep 1 ;;
@@ -184,6 +220,9 @@ main_menu() {
     done
 }
 
-# 脚本入口：先执行自动初始化，再进入主菜单
-auto_init
-main_menu
+# ==========================================
+# 启动顺序
+# ==========================================
+auto_init              # 检测是否首次运行并自动安装依赖
+check_kernel_cleanup   # 检测是否刚装完内核并重启过，是则自动清理旧内核
+main_menu              # 载入主界面
