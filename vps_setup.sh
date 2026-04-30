@@ -162,11 +162,11 @@ setup_hostname_swap() {
 manage_kernel() {
     while true; do
         clear
-        echo -e "\033[1;36m=========== ${OS_ID^} 系统内核自适应管理 ===========\033[0m"
+        echo -e "\033[1;36m======== ${OS_ID^} 系统内核自适应管理 ========\033[0m"
         
         if [ "$OS_ID" == "debian" ]; then
-            echo "1. 安装 稳定版 云内核 (linux-image-cloud-amd64)"
-            echo "2. 安装 最新版 云内核 (${OS_CODENAME}-backports 仓库)"
+            echo "1. 安装 稳定版 云内核"
+            echo "2. 安装 最新版 云内核 (${OS_CODENAME}-backports)"
         elif [ "$OS_ID" == "ubuntu" ]; then
             echo "1. 安装 稳定版 虚拟化内核 (linux-virtual)"
             echo "2. 安装 最新版 官方 HWE 内核 (硬件使能新版支持)"
@@ -175,7 +175,7 @@ manage_kernel() {
         echo "3. 查看当前系统已安装的所有内核包"
         echo "4. 手动深度清理旧版无用内核"
         echo "0. 返回主菜单"
-        echo "-------------------------------------------------"
+        echo "-------------------------------------------"
         read -p "请选择 [0-4]: " kernel_choice
 
         TMP_LOG=$(mktemp) 
