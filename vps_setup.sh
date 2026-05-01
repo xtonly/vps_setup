@@ -449,7 +449,7 @@ main_menu() {
         echo "   0. 退出脚本"
         echo -e "\033[1;35m=========================================================\033[0m"
         
-        read -p "  请输入对应的数字选项: " choice
+        read -p "   请输入对应的数字选项: " choice
         case "$choice" in
             1) setup_hostname_swap ;;
             2) manage_kernel ;;
