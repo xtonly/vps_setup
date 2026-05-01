@@ -444,7 +444,7 @@ main_menu() {
         echo "  3. 综合测试 (脚本合集)"
         echo "  4. 节点一键搭建脚本 (E-Shoes)"
         echo "  5. 安装 Docker 与 Docker Compose 容器"
-        echo "  6. IPv6 禁用/恢复
+        echo "  6. IPv6 禁用/恢复"
         echo "  9. 重启服务器 (Reboot)"
         echo "  0. 退出脚本"
         echo -e "\033[1;35m=========================================================\033[0m"
