@@ -439,17 +439,17 @@ main_menu() {
         echo -e " \033[1;34m公网 IPv4:\033[0m \033[1;32m${PUBLIC_IPV4}\033[0m"
         echo -e " \033[1;34m公网 IPv6:\033[0m \033[1;32m${PUBLIC_IPV6}\033[0m"
         echo -e "\033[1;35m---------------------------------------------------------\033[0m"
-        echo "   1. 设置 Hostname / Swap"
-        echo "   2. 安装与管理云内核"
-        echo "   3. 综合测试 (脚本合集)"
-        echo "   4. 一键搭建脚本 (E-Shoes)"
-        echo "   5. 安装 Docker 与 Docker Compose 容器"
-        echo "   6. IPv6 禁用/恢复"
-        echo "   9. 重启服务器 (Reboot)"
-        echo "   0. 退出脚本"
+        echo "  1. 设置 Hostname / Swap"
+        echo "  2. 安装与管理云内核"
+        echo "  3. 综合测试 (脚本合集)"
+        echo "  4. 一键搭建脚本 (E-Shoes)"
+        echo "  5. 安装 Docker 与 Docker Compose 容器"
+        echo "  6. IPv6 禁用/恢复"
+        echo "  9. 重启服务器 (Reboot)"
+        echo "  0. 退出脚本"
         echo -e "\033[1;35m=========================================================\033[0m"
         
-        read -p "    请输入对应的数字选项: " choice
+        read -p "  请输入对应的数字选项: " choice
         case "$choice" in
             1) setup_hostname_swap ;;
             2) manage_kernel ;;
