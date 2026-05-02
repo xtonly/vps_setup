@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================
-# VPS 综合初始化与管理脚本 (集成 E-Shoes 节点搭建)
+# VPS 综合初始化与管理脚本 (集成 E-Shoes & Caddy)
 # ==============================================
 
 # 确保使用 root 权限运行
@@ -11,6 +11,13 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 export DEBIAN_FRONTEND=noninteractive
+
+# ==========================================
+# Caddy 全局变量配置
+# ==========================================
+CADDYFILE="/etc/caddy/Caddyfile"
+BACKUP_CADDYFILE="${CADDYFILE}.bak"
+PROXY_CONFIG_FILE="/root/caddy_reverse_proxies.txt"
 
 # ==========================================
 # 获取 VPS 基础信息与系统识别
@@ -337,7 +344,6 @@ install_docker() {
     if command -v docker &> /dev/null; then
         echo -e "\033[1;32m检测到 Docker 已安装！当前版本信息如下：\033[0m"
         docker --version
-        # 检测 Compose 插件或独立版
         if docker compose version &> /dev/null; then
             docker compose version
         elif command -v docker-compose &> /dev/null; then
@@ -371,55 +377,217 @@ manage_ipv6() {
         case "$ipv6_choice" in
             1)
                 echo -e "\033[1;33m--> 正在执行 IPv6 加固禁用...\033[0m"
-                # 1. 独立配置文件修改
                 cat > /etc/sysctl.d/99-disable-ipv6.conf <<EOF
 net.ipv6.conf.all.disable_ipv6 = 1
 net.ipv6.conf.default.disable_ipv6 = 1
 net.ipv6.conf.lo.disable_ipv6 = 1
 EOF
                 sysctl --system > /dev/null 2>&1
-                
-                # 2. 修改 GRUB 内核参数
                 if [ -f /etc/default/grub ]; then
                     if ! grep -q "ipv6.disable=1" /etc/default/grub; then
                         sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="/GRUB_CMDLINE_LINUX_DEFAULT="ipv6.disable=1 /' /etc/default/grub
                         update-grub > /dev/null 2>&1
                     fi
                 fi
-                
-                # 3. 添加黑名单
                 echo "blacklist ipv6" > /etc/modprobe.d/blacklist-ipv6.conf
-                
-                echo -e "\033[1;32mIPv6 禁用规则已注入！(推荐重启服务器以确保 GRUB 内核参数彻底生效)\033[0m"
+                echo -e "\033[1;32mIPv6 禁用规则已注入！(推荐重启服务器以确保彻底生效)\033[0m"
                 PUBLIC_IPV6="已禁用"
                 read -n 1 -s -r -p "按任意键返回..."
                 ;;
             2)
                 echo -e "\033[1;33m--> 正在清理禁用规则，恢复 IPv6...\033[0m"
-                # 1. 删除独立禁用配置并实时重置参数
                 rm -f /etc/sysctl.d/99-disable-ipv6.conf
                 sysctl -w net.ipv6.conf.all.disable_ipv6=0 > /dev/null 2>&1
                 sysctl -w net.ipv6.conf.default.disable_ipv6=0 > /dev/null 2>&1
                 sysctl -w net.ipv6.conf.lo.disable_ipv6=0 > /dev/null 2>&1
-                
-                # 2. 恢复 GRUB 参数
                 if [ -f /etc/default/grub ]; then
                     sed -i 's/ipv6.disable=1 //' /etc/default/grub
                     update-grub > /dev/null 2>&1
                 fi
-                
-                # 3. 移除黑名单
                 rm -f /etc/modprobe.d/blacklist-ipv6.conf
-                
-                # 4. 重新加载系统所有 sysctl 配置，确保 BBR 不受影响
                 sysctl --system > /dev/null 2>&1
-                
-                echo -e "\033[1;32mIPv6 恢复规则已应用！(部分云厂商网络需重启服务器才能重新获取 IPv6)\033[0m"
+                echo -e "\033[1;32mIPv6 恢复规则已应用！\033[0m"
                 PUBLIC_IPV6=$(curl -s6 --max-time 3 ifconfig.me || curl -s6 --max-time 3 ident.me || echo "无 IPv6")
                 read -n 1 -s -r -p "按任意键返回..."
                 ;;
             0) return ;;
             *) echo "无效的选择，请重新输入！" && sleep 1 ;;
+        esac
+    done
+}
+
+# ==========================================
+# Caddy 辅助判断函数
+# ==========================================
+check_caddy_installed() {
+    if command -v caddy >/dev/null 2>&1; then return 0; else return 1; fi
+}
+
+check_port_running() {
+    local port=$1
+    if timeout 1 bash -c "echo > /dev/tcp/127.0.0.1/$port" 2>/dev/null; then
+        echo -e "\033[1;32m运行中\033[0m"
+    else
+        echo -e "\033[1;31m未运行\033[0m"
+    fi
+}
+
+# ====================================
+# 反向代理系统 (集成 EasyCaddy)
+# ====================================
+manage_caddy() {
+    while true; do
+        clear
+        echo -e "\033[1;36m=============== EasyCaddy 反向代理管理 ===============\033[0m"
+        
+        caddy_status=$(systemctl is-active caddy 2>/dev/null)
+        if [ "$caddy_status" == "active" ]; then
+            echo -e " \033[1;34m核心组件:\033[0m \033[1;32m已安装且运行中\033[0m"
+        elif check_caddy_installed; then
+            echo -e " \033[1;34m核心组件:\033[0m \033[1;33m已安装，但服务未运行\033[0m"
+        else
+            echo -e " \033[1;34m核心组件:\033[0m \033[1;31m未安装\033[0m"
+        fi
+        
+        echo -e "\033[1;35m----------------------------------------------------\033[0m"
+        echo "  1. 一键安装 Caddy (官方稳定版源)"
+        echo "  2. 配置并启用反向代理 (添加 域名 -> 端口)"
+        echo "  3. 查看当前反向代理列表与上游服务状态"
+        echo "  4. 删除指定的反向代理配置"
+        echo "  5. 重启 Caddy 服务"
+        echo "  6. 彻底卸载 Caddy 并清理配置文件"
+        echo "  0. 返回主菜单"
+        echo -e "\033[1;35m====================================================\033[0m"
+        read -p "  请选择操作 [0-6]: " caddy_choice
+
+        case "$caddy_choice" in
+            1)
+                if check_caddy_installed; then
+                    echo -e "\n\033[1;33m--> Caddy 已安装，无需重复安装。\033[0m"
+                else
+                    echo -e "\n\033[1;33m--> 开始安装 Caddy (添加官方仓库)...\033[0m"
+                    apt-get update -y
+                    apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
+                    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+                    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+                    apt-get update -y
+                    apt-get install -y caddy
+                    
+                    if check_caddy_installed; then
+                        echo -e "\033[1;32mCaddy 安装成功！\033[0m"
+                    else
+                        echo -e "\033[1;31mCaddy 安装失败，请检查网络或系统日志。\033[0m"
+                    fi
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            2)
+                if ! check_caddy_installed; then
+                    echo -e "\n\033[1;31m错误：未检测到 Caddy，请先执行选项 1 安装 Caddy！\033[0m"
+                else
+                    echo -e "\n\033[1;36m--- 新增反向代理 ---\033[0m"
+                    read -p "请输入访问域名 (例如 nav.example.com): " domain
+                    read -p "请输入本地上游端口 (例如 8080): " port
+                    
+                    if [[ -n "$domain" && -n "$port" ]]; then
+                        upstream="http://127.0.0.1:${port}"
+                        if [ ! -f "$BACKUP_CADDYFILE" ]; then cp "$CADDYFILE" "$BACKUP_CADDYFILE"; fi
+                        
+                        echo "${domain} {
+    reverse_proxy ${upstream}
+}" >> "$CADDYFILE"
+                        
+                        echo "${domain} -> ${upstream}" >> "$PROXY_CONFIG_FILE"
+                        
+                        echo -e "\033[1;33m--> 正在重启 Caddy 服务以应用新配置...\033[0m"
+                        systemctl restart caddy
+                        
+                        status=$(check_port_running "$port")
+                        echo -e "\033[1;32m代理已添加: ${domain} -> ${upstream}\033[0m"
+                        echo -e "上游服务 (端口 ${port}) 状态：$status"
+                    else
+                        echo -e "\033[1;31m域名或端口不能为空，操作已取消。\033[0m"
+                    fi
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            3)
+                echo -e "\n\033[1;36m--- 当前反向代理配置列表 ---\033[0m"
+                if [ -f "$PROXY_CONFIG_FILE" ]; then
+                    lineno=0
+                    while IFS= read -r line; do
+                        lineno=$((lineno+1))
+                        port=$(echo "$line" | grep -oE '[0-9]{2,5}$')
+                        status=$(check_port_running "$port")
+                        echo -e "  \033[1;37m${lineno})\033[0m ${line} [上游状态：${status}]"
+                    done < "$PROXY_CONFIG_FILE"
+                else
+                    echo -e "\033[1;33m目前没有配置任何反向代理规则。\033[0m"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            4)
+                if [ -f "$PROXY_CONFIG_FILE" ]; then
+                    echo -e "\n\033[1;36m--- 删除反向代理 ---\033[0m"
+                    lineno=0
+                    while IFS= read -r line; do
+                        lineno=$((lineno+1))
+                        echo -e "  \033[1;37m${lineno})\033[0m ${line}"
+                    done < "$PROXY_CONFIG_FILE"
+                    
+                    read -p "请输入要删除的配置编号 (直接回车取消): " proxy_number
+                    if [[ -n "$proxy_number" && "$proxy_number" =~ ^[0-9]+$ ]]; then
+                        sed -i "${proxy_number}d" "$PROXY_CONFIG_FILE"
+                        echo -e "\033[1;33m--> 正在重写 Caddyfile 规则...\033[0m"
+                        cp "$BACKUP_CADDYFILE" "$CADDYFILE"
+                        
+                        while IFS= read -r line; do
+                            d=$(echo "$line" | awk -F' -> ' '{print $1}')
+                            u=$(echo "$line" | awk -F' -> ' '{print $2}')
+                            echo "${d} {
+    reverse_proxy ${u}
+}" >> "$CADDYFILE"
+                        done < "$PROXY_CONFIG_FILE"
+                        
+                        systemctl restart caddy
+                        echo -e "\033[1;32m选定的反向代理删除成功，Caddy 已重启！\033[0m"
+                    else
+                        echo -e "\033[1;31m输入无效或已取消。\033[0m"
+                    fi
+                else
+                    echo -e "\n\033[1;33m目前没有配置任何反向代理规则可供删除。\033[0m"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            5)
+                echo -e "\n\033[1;33m--> 正在重启 Caddy 服务...\033[0m"
+                systemctl restart caddy
+                echo -e "\033[1;32m重启完成！\033[0m"
+                systemctl status caddy --no-pager | head -n 5
+                echo "" && read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            6)
+                echo -e "\n\033[1;31m警告：这将完全卸载 Caddy 并删除所有配置文件与代理列表！\033[0m"
+                read -p "是否确定继续？(y/n) " confirm
+                if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                    echo -e "\033[1;33m--> 正在停止并卸载 Caddy...\033[0m"
+                    systemctl stop caddy
+                    apt-get remove --purge -y caddy
+                    rm -f /etc/apt/sources.list.d/caddy-stable.list
+                    apt-get update -y
+                    rm -f "$CADDYFILE" "$BACKUP_CADDYFILE" "$PROXY_CONFIG_FILE"
+                    echo -e "\033[1;32mCaddy 及其相关配置已彻底清除。\033[0m"
+                else
+                    echo -e "操作已取消。"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            0)
+                return
+                ;;
+            *)
+                echo -e "\033[1;31m无效的选择，请重新输入！\033[0m" && sleep 1
+                ;;
         esac
     done
 }
@@ -431,7 +599,7 @@ main_menu() {
     while true; do
         clear
         echo -e "\033[1;35m=========================================================\033[0m"
-        echo -e "\033[1;36m               VPS 综合环境配置管理工具 2.0                \033[0m"
+        echo -e "\033[1;36m               VPS 综合环境配置管理工具 2.1                \033[0m"
         echo -e "\033[1;35m=========================================================\033[0m"
         echo -e " \033[1;34m系统环境:\033[0m \033[1;37m${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})\033[0m"
         echo -e " \033[1;34m当前内核:\033[0m \033[1;37m${KERNEL_VER}\033[0m"
@@ -445,6 +613,7 @@ main_menu() {
         echo "  4. 一键搭建脚本 (E-Shoes)"
         echo "  5. 安装 Docker 与 Docker Compose 容器"
         echo "  6. IPv6 禁用/恢复"
+        echo "  7. EasyCaddy 反向代理"
         echo "  9. 重启服务器 (Reboot)"
         echo "  0. 退出脚本"
         echo -e "\033[1;35m=========================================================\033[0m"
@@ -457,6 +626,7 @@ main_menu() {
             4) run_eshoes ;;
             5) install_docker ;;
             6) manage_ipv6 ;;
+            7) manage_caddy ;;
             9) 
                 echo -e "\033[1;31m系统正在重启，请稍后重新连接...\033[0m"
                 reboot 
