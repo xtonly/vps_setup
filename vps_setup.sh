@@ -851,7 +851,7 @@ manage_security() {
         ufw_status=$(ufw status 2>/dev/null | grep -qw "active" && echo -e "\033[1;32m运行中\033[0m" || echo -e "\033[1;31m未启用\033[0m")
         f2b_status=$(systemctl is-active fail2ban 2>/dev/null | grep -qw "active" && echo -e "\033[1;32m运行中\033[0m" || echo -e "\033[1;31m未启用/未安装\033[0m")
 
-        echo -e "\033[1;36m============= 安全管理 (UFW / Fail2Ban / SSH) =============\033[0m"
+        echo -e "\033[1;36m=============== 安全管理 (UFW / Fail2Ban / SSH) ===============\033[0m"
         echo -e " \033[1;34m当前 SSH 端口:\033[0m \033[1;37m${CURRENT_SSH_PORT}\033[0m"
         echo -e " \033[1;34mUFW 防火墙状态:\033[0m $ufw_status"
         echo -e " \033[1;34mFail2Ban 状态:\033[0m $f2b_status"
@@ -862,7 +862,7 @@ manage_security() {
         echo "  4. 自定义 UFW 防火墙规则 (放行/封禁/删除)"
         echo "  5. 自定义 Fail2Ban 封禁策略 (设置容错次数与封禁时长)"
         echo "  0. 返回主菜单"
-        echo -e "\033[1;35m===========================================================\033[0m"
+        echo -e "\033[1;35m===============================================================\033[0m"
         read -p "  请选择操作 [0-5]: " sec_choice
 
         case "$sec_choice" in
