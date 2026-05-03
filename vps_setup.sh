@@ -327,7 +327,6 @@ run_eshoes() {
     clear
     echo -e "\033[1;36m========= 启动 E-Shoes 代理节点一键搭建脚本 =========\033[0m"
     echo -e "\033[1;33m--> 正在拉取并执行最新版 E-Shoes...\033[0m"
-    # 强制使用 IPv4 下载执行，确保兼容性
     wget -4 --no-check-certificate -qO eshoes.sh https://raw.githubusercontent.com/xtonly/E-Shoes/refs/heads/main/eshoes.sh && chmod +x eshoes.sh && ./eshoes.sh
     echo ""
     read -n 1 -s -r -p "E-Shoes 脚本执行结束，按任意键返回主菜单..."
@@ -591,8 +590,9 @@ manage_caddy() {
 }
 
 # ==========================================
-# SSH 密钥生成与导入核心逻辑
+# SSH 密钥配置与 UFW/Fail2Ban 策略子模块
 # ==========================================
+
 config_ssh_key() {
     clear
     echo -e "\033[1;36m============= SSH 密钥登录配置 =============\033[0m"
@@ -657,15 +657,133 @@ config_ssh_key() {
     echo "" && read -n 1 -s -r -p "按任意键返回..."
 }
 
-# ==========================================
-# 安全管理系统 (UFW / Fail2Ban / SSH)
-# ==========================================
+config_ufw_rules() {
+    while true; do
+        clear
+        echo -e "\033[1;36m============= UFW 防火墙自定义规则 =============\033[0m"
+        echo "  1. 查看当前所有规则 (带编号)"
+        echo "  2. 放行特定端口 (Allow, 示例: 8888/tcp)"
+        echo "  3. 封禁特定端口 (Deny)"
+        echo "  4. 根据编号删除规则"
+        echo "  0. 返回上一级"
+        echo -e "\033[1;35m================================================\033[0m"
+        read -p "  请选择操作 [0-4]: " ufw_act
+        case "$ufw_act" in
+            1)
+                clear
+                echo -e "\033[1;33m当前 UFW 规则列表:\033[0m"
+                ufw status numbered
+                echo "" && read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            2)
+                read -p "请输入要放行的端口 (如 8080 或 8080/tcp): " add_port
+                if [ -n "$add_port" ]; then
+                    ufw allow "$add_port"
+                    echo -e "\033[1;32m已添加放行规则: $add_port\033[0m"
+                fi
+                sleep 1.5
+                ;;
+            3)
+                read -p "请输入要封禁的端口 (如 3306 或 3306/tcp): " deny_port
+                if [ -n "$deny_port" ]; then
+                    ufw deny "$deny_port"
+                    echo -e "\033[1;32m已添加封禁规则: $deny_port\033[0m"
+                fi
+                sleep 1.5
+                ;;
+            4)
+                ufw status numbered
+                read -p "请输入要删除的规则编号: " del_num
+                if [[ "$del_num" =~ ^[0-9]+$ ]]; then
+                    ufw --force delete "$del_num"
+                    echo -e "\033[1;32m规则 $del_num 已删除\033[0m"
+                fi
+                sleep 1.5
+                ;;
+            0) return ;;
+            *) echo -e "\033[1;31m无效选择\033[0m" && sleep 1 ;;
+        esac
+    done
+}
+
+config_fail2ban_strategy() {
+    while true; do
+        clear
+        echo -e "\033[1;36m============= Fail2Ban 策略自定义 (SSH) =============\033[0m"
+        
+        JAIL_FILE="/etc/fail2ban/jail.local"
+        if [ ! -f "$JAIL_FILE" ]; then
+            cat > "$JAIL_FILE" <<EOF
+[sshd]
+enabled = true
+port = ssh
+filter = sshd
+maxretry = 5
+findtime = 600
+bantime = 3600
+EOF
+        fi
+        
+        cur_maxretry=$(grep -E "^maxretry" "$JAIL_FILE" | awk '{print $3}')
+        cur_findtime=$(grep -E "^findtime" "$JAIL_FILE" | awk '{print $3}')
+        cur_bantime=$(grep -E "^bantime" "$JAIL_FILE" | awk '{print $3}')
+        
+        [[ -z "$cur_maxretry" ]] && cur_maxretry=5
+        [[ -z "$cur_findtime" ]] && cur_findtime=600
+        [[ -z "$cur_bantime" ]] && cur_bantime=3600
+
+        echo -e " \033[1;34m当前最大容错次数 (maxretry):\033[0m \033[1;37m$cur_maxretry 次\033[0m"
+        echo -e " \033[1;34m当前检测周期 (findtime):\033[0m \033[1;37m$cur_findtime 秒\033[0m"
+        echo -e " \033[1;34m当前封禁时长 (bantime):\033[0m \033[1;37m$cur_bantime 秒\033[0m (注: -1 为永久封禁)"
+        echo -e "\033[1;35m-----------------------------------------------------\033[0m"
+        echo "  1. 修改 SSH 防爆破策略参数"
+        echo "  2. 查看当前被封禁的 IP 列表"
+        echo "  3. 手动解封特定 IP"
+        echo "  0. 返回上一级"
+        echo -e "\033[1;35m=====================================================\033[0m"
+        read -p "  请选择操作 [0-3]: " f2b_act
+
+        case "$f2b_act" in
+            1)
+                read -p "请输入新的最大容错次数 (直接回车保持 $cur_maxretry): " new_max
+                read -p "请输入新的检测周期(秒) (直接回车保持 $cur_findtime): " new_find
+                read -p "请输入新的封禁时长(秒) (直接回车保持 $cur_bantime, -1永久): " new_ban
+                
+                [[ -n "$new_max" ]] && sed -i "s/^maxretry.*/maxretry = $new_max/" "$JAIL_FILE"
+                [[ -n "$new_find" ]] && sed -i "s/^findtime.*/findtime = $new_find/" "$JAIL_FILE"
+                [[ -n "$new_ban" ]] && sed -i "s/^bantime.*/bantime = $new_ban/" "$JAIL_FILE"
+                
+                echo -e "\033[1;33m--> 正在重启 Fail2Ban 以应用新策略...\033[0m"
+                systemctl restart fail2ban
+                echo -e "\033[1;32m策略已更新并生效！\033[0m"
+                sleep 1.5
+                ;;
+            2)
+                clear
+                echo -e "\033[1;33m当前 [sshd] 监狱状态及被封禁的 IP 列表:\033[0m"
+                fail2ban-client status sshd
+                echo "" && read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            3)
+                read -p "请输入要解封的 IP 地址: " unban_ip
+                if [ -n "$unban_ip" ]; then
+                    fail2ban-client set sshd unbanip "$unban_ip"
+                    echo -e "\033[1;32m指令已下发。如果该 IP 存在于封禁列表中，现已解封。\033[0m"
+                fi
+                sleep 1.5
+                ;;
+            0) return ;;
+            *) echo -e "\033[1;31m无效选择\033[0m" && sleep 1 ;;
+        esac
+    done
+}
+
 manage_security() {
     while true; do
         clear
         
-        # 智能获取当前运行的 SSH 端口
-        CURRENT_SSH_PORT=$(sshd -T 2>/dev/null | grep -i "^port " | awk '{print $2}')
+        # 修复端口抓取 Bug，过滤掉多余的换行符和多重输出，只取第一行纯数字
+        CURRENT_SSH_PORT=$(sshd -T 2>/dev/null | grep -i "^port " | head -n 1 | awk '{print $2}' | tr -d '\r\n')
         [[ -z "$CURRENT_SSH_PORT" ]] && CURRENT_SSH_PORT=22
         
         ufw_status=$(ufw status 2>/dev/null | grep -qw "active" && echo -e "\033[1;32m运行中\033[0m" || echo -e "\033[1;31m未启用\033[0m")
@@ -675,13 +793,15 @@ manage_security() {
         echo -e " \033[1;34m当前 SSH 端口:\033[0m \033[1;37m${CURRENT_SSH_PORT}\033[0m"
         echo -e " \033[1;34mUFW 防火墙状态:\033[0m $ufw_status"
         echo -e " \033[1;34mFail2Ban 状态:\033[0m $f2b_status"
-        echo -e "\033[1;35m-----------------------------------------------------------\033[0m"
-        echo "  1. 一键安装并启用基础防御 (UFW 防火墙 + Fail2Ban防爆破)"
+        echo -e "\033[1;36m-----------------------------------------------------------\033[0m"
+        echo "  1. 一键安装并启用基础防御 (UFW + Fail2Ban)"
         echo "  2. 修改 SSH 默认登录端口 (智能联动 UFW 放行)"
-        echo "  3. 配置 SSH 密钥登录 (免密安全登录)"
+        echo "  3. 配置 SSH 密钥登录 (免密安全登录/防爆破必配)"
+        echo "  4. 自定义 UFW 防火墙规则 (放行/封禁/删除)"
+        echo "  5. 自定义 Fail2Ban 封禁策略 (设置容错次数与时长)"
         echo "  0. 返回主菜单"
-        echo -e "\033[1;35m===========================================================\033[0m"
-        read -p "  请选择操作 [0-3]: " sec_choice
+        echo -e "\033[1;36m===========================================================\033[0m"
+        read -p "  请选择操作 [0-5]: " sec_choice
 
         case "$sec_choice" in
             1)
@@ -709,11 +829,9 @@ manage_security() {
                 read -p "请输入新的 SSH 端口号 (1024-65535 之间，直接回车取消): " new_port
                 if [[ -n "$new_port" && "$new_port" =~ ^[0-9]+$ && "$new_port" -ge 1024 && "$new_port" -le 65535 ]]; then
                     echo -e "\033[1;33m--> 正在修改 SSH 端口配置...\033[0m"
-                    # 确保存在 Port 行并覆盖
                     grep -q "^#*Port" /etc/ssh/sshd_config || echo "Port $CURRENT_SSH_PORT" >> /etc/ssh/sshd_config
                     sed -i "s/^#*Port .*/Port $new_port/" /etc/ssh/sshd_config
                     
-                    # 智能联动判断，如果 UFW 是开启的，必须主动放行新端口防止掉线
                     if ufw status | grep -qw "active"; then
                         ufw allow ${new_port}/tcp
                         echo -e "\033[1;32m已自动在 UFW 防火墙中放行新端口 ${new_port}\033[0m"
@@ -729,6 +847,12 @@ manage_security() {
                 ;;
             3)
                 config_ssh_key
+                ;;
+            4)
+                config_ufw_rules
+                ;;
+            5)
+                config_fail2ban_strategy
                 ;;
             0)
                 return
@@ -747,7 +871,7 @@ main_menu() {
     while true; do
         clear
         echo -e "\033[1;35m=========================================================\033[0m"
-        echo -e "\033[1;36m               VPS 综合环境配置管理工具 2.3                \033[0m"
+        echo -e "\033[1;36m               VPS 综合环境配置管理工具 2.4                \033[0m"
         echo -e "\033[1;35m=========================================================\033[0m"
         echo -e " \033[1;34m系统环境:\033[0m \033[1;37m${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})\033[0m"
         echo -e " \033[1;34m当前内核:\033[0m \033[1;37m${KERNEL_VER}\033[0m"
@@ -755,14 +879,14 @@ main_menu() {
         echo -e " \033[1;34m公网 IPv4:\033[0m \033[1;32m${PUBLIC_IPV4}\033[0m"
         echo -e " \033[1;34m公网 IPv6:\033[0m \033[1;32m${PUBLIC_IPV6}\033[0m"
         echo -e "\033[1;35m---------------------------------------------------------\033[0m"
-        echo "  1. 设置 Hostname / Swap"
+        echo "  1. 设置 Hostname/Swap"
         echo "  2. 安装与管理云内核"
         echo "  3. 综合测试 (脚本合集)"
         echo "  4. 一键搭建脚本 (E-Shoes)"
         echo "  5. 安装 Docker 与 Docker Compose 容器"
         echo "  6. IPv6 禁用/恢复"
         echo "  7. EasyCaddy 反向代理"
-        echo "  8. 安全管理 (UFW / Fail2Ban / SSH 配置)"
+        echo "  8. 安全管理 (UFW/Fail2Ban/SSH 配置)"
         echo "  9. 重启服务器 (Reboot)"
         echo "  0. 退出脚本"
         echo -e "\033[1;35m=========================================================\033[0m"
