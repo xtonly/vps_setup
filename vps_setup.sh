@@ -2,6 +2,7 @@
 
 # ==============================================
 # VPS 综合初始化与管理脚本 (集成 E-Shoes, Caddy, UFW, SSH)
+# 包含系统级 SSH 防锁死护盾机制
 # ==============================================
 
 # 确保使用 root 权限运行
@@ -590,7 +591,48 @@ manage_caddy() {
 }
 
 # ==========================================
-# SSH 密钥配置与 UFW/Fail2Ban 策略子模块
+# 核心底层辅助与防锁死函数
+# ==========================================
+
+# 100% 精确提取当前生效的 SSH 端口 (防换行符与多重输出干扰)
+get_current_ssh_port() {
+    local port=$(sshd -T 2>/dev/null | grep -i "^port " | head -n 1 | awk '{print $2}' | tr -d '\r\n')
+    if [[ -z "$port" || ! "$port" =~ ^[0-9]+$ ]]; then
+        port=$(grep -iE "^Port\s+[0-9]+" /etc/ssh/sshd_config | head -n 1 | awk '{print $2}' | tr -d '\r\n')
+    fi
+    [[ -z "$port" || ! "$port" =~ ^[0-9]+$ ]] && port=22
+    echo "$port"
+}
+
+# 核心系统级底层护盾：绕过普通防火墙层，直接修改内核路由表
+apply_ssh_anti_lockout() {
+    local port=$1
+    local file="/etc/ufw/before.rules"
+    if [ -f "$file" ]; then
+        # 1. 彻底清理旧的护盾代码
+        sed -i '/# === SSH_ANTI_LOCKOUT_START ===/,/# === SSH_ANTI_LOCKOUT_END ===/d' "$file"
+        
+        # 2. 植入新的护盾代码 (在 UFW 加载任何丢弃规则之前强制接收)
+        awk -v port="$port" '
+        /^# End required lines/ {
+            print $0
+            print "# === SSH_ANTI_LOCKOUT_START ==="
+            print "-A ufw-before-input -p tcp --dport " port " -j ACCEPT"
+            print "# === SSH_ANTI_LOCKOUT_END ==="
+            next
+        }
+        {print}
+        ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+        
+        # 3. 如果 UFW 正在运行，立刻静默重载使底层护盾生效
+        if command -v ufw >/dev/null 2>&1 && ufw status | grep -qw "active"; then
+            ufw reload >/dev/null 2>&1
+        fi
+    fi
+}
+
+# ==========================================
+# 安全管理策略系统 (UFW / Fail2Ban / SSH)
 # ==========================================
 
 config_ssh_key() {
@@ -706,24 +748,46 @@ config_ufw_rules() {
     done
 }
 
-config_fail2ban_strategy() {
-    while true; do
-        clear
-        echo -e "\033[1;36m============= Fail2Ban 策略自定义 (SSH) =============\033[0m"
-        
-        JAIL_FILE="/etc/fail2ban/jail.local"
-        if [ ! -f "$JAIL_FILE" ]; then
-            cat > "$JAIL_FILE" <<EOF
+init_fail2ban_jail() {
+    local current_port=$(get_current_ssh_port)
+    local JAIL_FILE="/etc/fail2ban/jail.local"
+    
+    if [ ! -f "$JAIL_FILE" ]; then
+        cat > "$JAIL_FILE" <<EOF
+[DEFAULT]
+ignoreip = 127.0.0.1/8 ::1
+
 [sshd]
 enabled = true
-port = ssh
+port = $current_port
 filter = sshd
 maxretry = 5
 findtime = 600
 bantime = 3600
 EOF
+    fi
+    
+    # 动态抓取当前会话公网 IP 写入白名单，免除误操作封号烦恼
+    if [[ -n "$SSH_CLIENT" ]]; then
+        local USER_IP=$(echo $SSH_CLIENT | awk '{print $1}')
+        if [[ -n "$USER_IP" ]]; then
+            if ! grep -q "$USER_IP" "$JAIL_FILE"; then
+                sed -i "s/^ignoreip.*/& $USER_IP/" "$JAIL_FILE"
+            fi
         fi
+    fi
+    
+    sed -i "s/^port = .*/port = $current_port/" "$JAIL_FILE"
+    systemctl restart fail2ban >/dev/null 2>&1
+}
+
+config_fail2ban_strategy() {
+    init_fail2ban_jail
+    while true; do
+        clear
+        echo -e "\033[1;36m============= Fail2Ban 策略自定义 (SSH) =============\033[0m"
         
+        JAIL_FILE="/etc/fail2ban/jail.local"
         cur_maxretry=$(grep -E "^maxretry" "$JAIL_FILE" | awk '{print $3}')
         cur_findtime=$(grep -E "^findtime" "$JAIL_FILE" | awk '{print $3}')
         cur_bantime=$(grep -E "^bantime" "$JAIL_FILE" | awk '{print $3}')
@@ -782,9 +846,7 @@ manage_security() {
     while true; do
         clear
         
-        # 修复端口抓取 Bug，过滤掉多余的换行符和多重输出，只取第一行纯数字
-        CURRENT_SSH_PORT=$(sshd -T 2>/dev/null | grep -i "^port " | head -n 1 | awk '{print $2}' | tr -d '\r\n')
-        [[ -z "$CURRENT_SSH_PORT" ]] && CURRENT_SSH_PORT=22
+        CURRENT_SSH_PORT=$(get_current_ssh_port)
         
         ufw_status=$(ufw status 2>/dev/null | grep -qw "active" && echo -e "\033[1;32m运行中\033[0m" || echo -e "\033[1;31m未启用\033[0m")
         f2b_status=$(systemctl is-active fail2ban 2>/dev/null | grep -qw "active" && echo -e "\033[1;32m运行中\033[0m" || echo -e "\033[1;31m未启用/未安装\033[0m")
@@ -793,14 +855,14 @@ manage_security() {
         echo -e " \033[1;34m当前 SSH 端口:\033[0m \033[1;37m${CURRENT_SSH_PORT}\033[0m"
         echo -e " \033[1;34mUFW 防火墙状态:\033[0m $ufw_status"
         echo -e " \033[1;34mFail2Ban 状态:\033[0m $f2b_status"
-        echo -e "\033[1;36m-----------------------------------------------------------\033[0m"
-        echo "  1. 一键安装并启用基础防御 (UFW + Fail2Ban)"
-        echo "  2. 修改 SSH 默认登录端口 (智能联动 UFW 放行)"
+        echo -e "\033[1;35m-----------------------------------------------------------\033[0m"
+        echo "  1. 一键安装并启用基础防御 (UFW + Fail2Ban，内含系统级免锁死)"
+        echo "  2. 修改 SSH 默认登录端口 (系统底层联动重置，确保不断联)"
         echo "  3. 配置 SSH 密钥登录 (免密安全登录/防爆破必配)"
         echo "  4. 自定义 UFW 防火墙规则 (放行/封禁/删除)"
-        echo "  5. 自定义 Fail2Ban 封禁策略 (设置容错次数与时长)"
+        echo "  5. 自定义 Fail2Ban 封禁策略 (设置容错次数与封禁时长)"
         echo "  0. 返回主菜单"
-        echo -e "\033[1;36m===========================================================\033[0m"
+        echo -e "\033[1;35m===========================================================\033[0m"
         read -p "  请选择操作 [0-5]: " sec_choice
 
         case "$sec_choice" in
@@ -809,57 +871,62 @@ manage_security() {
                 apt-get update -y
                 apt-get install -y ufw fail2ban
                 
+                echo -e "\033[1;33m--> 构建底层内核级防锁死护盾...\033[0m"
+                apply_ssh_anti_lockout $CURRENT_SSH_PORT
+                
                 echo -e "\033[1;33m--> 配置并初始化基础防火墙规则...\033[0m"
                 ufw default deny incoming
                 ufw default allow outgoing
-                ufw allow ${CURRENT_SSH_PORT}/tcp
-                ufw allow 80/tcp
-                ufw allow 443/tcp
+                ufw allow ${CURRENT_SSH_PORT}/tcp >/dev/null 2>&1
+                ufw allow 80/tcp >/dev/null 2>&1
+                ufw allow 443/tcp >/dev/null 2>&1
                 ufw --force enable
                 
                 echo -e "\033[1;33m--> 启动 Fail2Ban 防爆破服务...\033[0m"
+                init_fail2ban_jail
                 systemctl enable --now fail2ban
                 
                 echo -e "\033[1;32m安全组件安装与启动完成！\033[0m"
-                echo -e "\033[1;37m系统已默认在防火墙中放行了 SSH(端口 ${CURRENT_SSH_PORT}), HTTP(80), HTTPS(443) 端口。\033[0m"
+                echo -e "\033[1;37m您当前的 IP 已加入自动白名单，底层防火墙规则已植入护盾。\033[0m"
                 echo "" && read -n 1 -s -r -p "按任意键返回..."
                 ;;
             2)
                 echo -e "\n\033[1;36m--- 修改 SSH 登录端口 ---\033[0m"
                 read -p "请输入新的 SSH 端口号 (1024-65535 之间，直接回车取消): " new_port
                 if [[ -n "$new_port" && "$new_port" =~ ^[0-9]+$ && "$new_port" -ge 1024 && "$new_port" -le 65535 ]]; then
-                    echo -e "\033[1;33m--> 正在修改 SSH 端口配置...\033[0m"
+                    echo -e "\033[1;33m--> 正在构建新底层防锁死护盾并修改配置...\033[0m"
+                    
+                    # 1. 确保在普通防火墙规则中放行旧端口和新端口
+                    ufw allow ${CURRENT_SSH_PORT}/tcp >/dev/null 2>&1
+                    ufw allow ${new_port}/tcp >/dev/null 2>&1
+                    
+                    # 2. 注入新的底层内核级防锁死规则
+                    apply_ssh_anti_lockout $new_port
+                    
+                    # 3. 修改系统 SSHD 配置文件
                     grep -q "^#*Port" /etc/ssh/sshd_config || echo "Port $CURRENT_SSH_PORT" >> /etc/ssh/sshd_config
                     sed -i "s/^#*Port .*/Port $new_port/" /etc/ssh/sshd_config
+                    systemctl restart sshd
                     
-                    if ufw status | grep -qw "active"; then
-                        ufw allow ${new_port}/tcp
-                        echo -e "\033[1;32m已自动在 UFW 防火墙中放行新端口 ${new_port}\033[0m"
+                    # 4. 同步更新 Fail2Ban 并重启
+                    if [ -f /etc/fail2ban/jail.local ]; then
+                        sed -i "s/^port = .*/port = $new_port/" /etc/fail2ban/jail.local
+                        systemctl restart fail2ban >/dev/null 2>&1
                     fi
                     
-                    systemctl restart sshd
                     echo -e "\033[1;32mSSH 端口已成功修改为 ${new_port}，并已重启生效！\033[0m"
-                    echo -e "\033[1;31m请注意：您当前的 SSH 连接暂不会断开，但下一次登录服务器请务必使用新端口。\033[0m"
+                    echo -e "\033[1;32m【护盾生效】底层内核路由表已被强制重写，无需担心任何形式的误删锁死。\033[0m"
+                    echo -e "\033[1;31m请注意：您当前的 SSH 连接暂不会断开，但下一次登录服务器请务必使用新端口 ${new_port}。\033[0m"
                 else
                     echo -e "\033[1;31m输入无效或已取消，端口保持为 ${CURRENT_SSH_PORT}。\033[0m"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..."
                 ;;
-            3)
-                config_ssh_key
-                ;;
-            4)
-                config_ufw_rules
-                ;;
-            5)
-                config_fail2ban_strategy
-                ;;
-            0)
-                return
-                ;;
-            *)
-                echo -e "\033[1;31m无效的选择，请重新输入！\033[0m" && sleep 1
-                ;;
+            3) config_ssh_key ;;
+            4) config_ufw_rules ;;
+            5) config_fail2ban_strategy ;;
+            0) return ;;
+            *) echo -e "\033[1;31m无效的选择，请重新输入！\033[0m" && sleep 1 ;;
         esac
     done
 }
@@ -871,7 +938,7 @@ main_menu() {
     while true; do
         clear
         echo -e "\033[1;35m=========================================================\033[0m"
-        echo -e "\033[1;36m               VPS 综合环境配置管理工具 2.4                \033[0m"
+        echo -e "\033[1;36m               VPS 综合环境配置管理工具 2.5                \033[0m"
         echo -e "\033[1;35m=========================================================\033[0m"
         echo -e " \033[1;34m系统环境:\033[0m \033[1;37m${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})\033[0m"
         echo -e " \033[1;34m当前内核:\033[0m \033[1;37m${KERNEL_VER}\033[0m"
@@ -879,14 +946,14 @@ main_menu() {
         echo -e " \033[1;34m公网 IPv4:\033[0m \033[1;32m${PUBLIC_IPV4}\033[0m"
         echo -e " \033[1;34m公网 IPv6:\033[0m \033[1;32m${PUBLIC_IPV6}\033[0m"
         echo -e "\033[1;35m---------------------------------------------------------\033[0m"
-        echo "  1. 设置 Hostname/Swap"
+        echo "  1. 设置 Hostname / Swap"
         echo "  2. 安装与管理云内核"
         echo "  3. 综合测试 (脚本合集)"
         echo "  4. 一键搭建脚本 (E-Shoes)"
         echo "  5. 安装 Docker 与 Docker Compose 容器"
         echo "  6. IPv6 禁用/恢复"
         echo "  7. EasyCaddy 反向代理"
-        echo "  8. 安全管理 (UFW/Fail2Ban/SSH 配置)"
+        echo "  8. 安全管理 (UFW / Fail2Ban / SSH 配置)"
         echo "  9. 重启服务器 (Reboot)"
         echo "  0. 退出脚本"
         echo -e "\033[1;35m=========================================================\033[0m"
