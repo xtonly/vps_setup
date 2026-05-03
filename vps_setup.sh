@@ -949,7 +949,7 @@ main_menu() {
         echo "  1. 设置 Hostname / Swap"
         echo "  2. 安装与管理云内核"
         echo "  3. 综合测试 (脚本合集)"
-        echo "  4. 一键搭建脚本 (E-Shoes)"
+        echo "  4. 一键(SS / Reality /Anytls)脚本 (E-Shoes)"
         echo "  5. 安装 Docker 与 Docker Compose 容器"
         echo "  6. IPv6 禁用/恢复"
         echo "  7. EasyCaddy 反向代理"
