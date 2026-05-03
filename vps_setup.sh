@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================
-# VPS 综合初始化与管理脚本 (集成 E-Shoes & Caddy)
+# VPS 综合初始化与管理脚本 (集成 E-Shoes, Caddy, UFW, SSH)
 # ==============================================
 
 # 确保使用 root 权限运行
@@ -46,7 +46,6 @@ purge_old_kernels() {
     echo -e "\033[1;33m--> 正在深度扫描并清除旧版无用内核...\033[0m"
     CURRENT_KERNEL=$(uname -r)
     
-    # 正则覆盖 Debian 和 Ubuntu 特有的包前缀，规避无版本号的 metapackage
     OLD_PACKAGES=$(dpkg -l | grep -E '^ii  linux-(image|headers|modules|base|binary|tools|kbuild)-[0-9]' | awk '{print $2}' | grep -v "$CURRENT_KERNEL")
     
     if [ -n "$OLD_PACKAGES" ]; then
@@ -87,7 +86,6 @@ auto_init() {
         echo -e "\033[1;33m--> 应用 BBR + FQ 强力持久化配置...\033[0m"
         sudo bash -c 'FILE="/etc/sysctl.d/99-bbr-optimization.conf"; rm -f $FILE; echo "net.core.default_qdisc = fq" >> $FILE; echo "net.ipv4.tcp_congestion_control = bbr" >> $FILE; sysctl --system > /dev/null; echo -e "\n\033[1;35m======================================\033[0m"; echo -e "\033[1;35m    BBR 强力持久化配置已应用       \033[0m"; echo -e "\033[1;35m======================================\033[0m\n"'
 
-        # 自适应写入 Backports 源 (仅限 Debian)
         if [ "$OS_ID" == "debian" ]; then
             echo -e "\033[1;33m--> 检测到 Debian 系统，正在配置 ${OS_CODENAME}-backports 软件源...\033[0m"
             if [ "$OS_VER" == "11" ]; then
@@ -593,13 +591,163 @@ manage_caddy() {
 }
 
 # ==========================================
+# SSH 密钥生成与导入核心逻辑
+# ==========================================
+config_ssh_key() {
+    clear
+    echo -e "\033[1;36m============= SSH 密钥登录配置 =============\033[0m"
+    echo "  1. 自动生成新密钥对 (系统自动分配并提供私钥备份)"
+    echo "  2. 手动粘贴已有公钥 (如您自己已有 ssh-rsa / ed25519)"
+    echo "  0. 返回上一级"
+    echo -e "\033[1;35m============================================\033[0m"
+    read -p "  请选择操作 [0-2]: " key_choice
+    
+    mkdir -p /root/.ssh
+    chmod 700 /root/.ssh
+    AUTH_FILE="/root/.ssh/authorized_keys"
+    touch $AUTH_FILE
+    chmod 600 $AUTH_FILE
+
+    case "$key_choice" in
+        1)
+            echo -e "\n\033[1;33m--> 正在生成最高安全级别的 ED25519 密钥对...\033[0m"
+            KEY_PATH="/root/.ssh/vps_ed25519_key"
+            rm -f ${KEY_PATH} ${KEY_PATH}.pub
+            ssh-keygen -t ed25519 -f ${KEY_PATH} -N "" -q
+            cat ${KEY_PATH}.pub >> $AUTH_FILE
+            
+            echo -e "\033[1;32m密钥生成完成！公钥已自动部署到服务器中。\033[0m"
+            echo -e "\033[1;31m【极为重要】请立即复制下方方框内的私钥内容，并保存到您本地电脑的文本文件中(如 vps_key.pem)\033[0m"
+            echo -e "--------------------------------------------------------"
+            cat ${KEY_PATH}
+            echo -e "--------------------------------------------------------"
+            echo -e "私钥在服务器的备份路径为: \033[1;37m${KEY_PATH}\033[0m"
+            ;;
+        2)
+            echo -e "\n\033[1;36m请将您的公钥 (以 ssh-rsa 或 ssh-ed25519 开头) 粘贴在下方并回车:\033[0m"
+            read -r user_pub_key
+            if [[ -n "$user_pub_key" ]]; then
+                echo "$user_pub_key" >> $AUTH_FILE
+                echo -e "\033[1;32m导入成功！您的公钥已追加到 authorized_keys 中。\033[0m"
+            else
+                echo -e "\033[1;31m输入为空，操作已取消。\033[0m"
+                echo "" && read -n 1 -s -r -p "按任意键返回..."
+                return
+            fi
+            ;;
+        0)
+            return
+            ;;
+        *)
+            echo -e "\033[1;31m无效的选择！\033[0m" && sleep 1
+            return
+            ;;
+    esac
+    
+    echo -e "\n\033[1;33m安全防护建议：\033[0m"
+    echo "密钥配置成功后，建议立即禁用传统的密码登录方式，以彻底阻断机器暴力破解。"
+    read -p "是否立即禁用 SSH 密码登录？(y/n) " disable_pwd
+    if [[ "$disable_pwd" =~ ^[Yy]$ ]]; then
+        sed -i 's/^#*PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
+        systemctl restart sshd
+        echo -e "\033[1;32m已禁用密码登录并重启 SSH 服务！以后只能通过您刚才配置的密钥登录本服务器。\033[0m"
+    else
+        echo -e "\033[1;33m已跳过禁用步骤，您仍可以使用密码或密钥登录。\033[0m"
+    fi
+    echo "" && read -n 1 -s -r -p "按任意键返回..."
+}
+
+# ==========================================
+# 安全管理系统 (UFW / Fail2Ban / SSH)
+# ==========================================
+manage_security() {
+    while true; do
+        clear
+        
+        # 智能获取当前运行的 SSH 端口
+        CURRENT_SSH_PORT=$(sshd -T 2>/dev/null | grep -i "^port " | awk '{print $2}')
+        [[ -z "$CURRENT_SSH_PORT" ]] && CURRENT_SSH_PORT=22
+        
+        ufw_status=$(ufw status 2>/dev/null | grep -qw "active" && echo -e "\033[1;32m运行中\033[0m" || echo -e "\033[1;31m未启用\033[0m")
+        f2b_status=$(systemctl is-active fail2ban 2>/dev/null | grep -qw "active" && echo -e "\033[1;32m运行中\033[0m" || echo -e "\033[1;31m未启用/未安装\033[0m")
+
+        echo -e "\033[1;36m============= 安全管理 (UFW / Fail2Ban / SSH) =============\033[0m"
+        echo -e " \033[1;34m当前 SSH 端口:\033[0m \033[1;37m${CURRENT_SSH_PORT}\033[0m"
+        echo -e " \033[1;34mUFW 防火墙状态:\033[0m $ufw_status"
+        echo -e " \033[1;34mFail2Ban 状态:\033[0m $f2b_status"
+        echo -e "\033[1;35m-----------------------------------------------------------\033[0m"
+        echo "  1. 一键安装并启用基础防御 (UFW 防火墙 + Fail2Ban防爆破)"
+        echo "  2. 修改 SSH 默认登录端口 (智能联动 UFW 放行)"
+        echo "  3. 配置 SSH 密钥登录 (免密安全登录)"
+        echo "  0. 返回主菜单"
+        echo -e "\033[1;35m===========================================================\033[0m"
+        read -p "  请选择操作 [0-3]: " sec_choice
+
+        case "$sec_choice" in
+            1)
+                echo -e "\n\033[1;33m--> 正在安装 UFW 与 Fail2Ban...\033[0m"
+                apt-get update -y
+                apt-get install -y ufw fail2ban
+                
+                echo -e "\033[1;33m--> 配置并初始化基础防火墙规则...\033[0m"
+                ufw default deny incoming
+                ufw default allow outgoing
+                ufw allow ${CURRENT_SSH_PORT}/tcp
+                ufw allow 80/tcp
+                ufw allow 443/tcp
+                ufw --force enable
+                
+                echo -e "\033[1;33m--> 启动 Fail2Ban 防爆破服务...\033[0m"
+                systemctl enable --now fail2ban
+                
+                echo -e "\033[1;32m安全组件安装与启动完成！\033[0m"
+                echo -e "\033[1;37m系统已默认在防火墙中放行了 SSH(端口 ${CURRENT_SSH_PORT}), HTTP(80), HTTPS(443) 端口。\033[0m"
+                echo "" && read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            2)
+                echo -e "\n\033[1;36m--- 修改 SSH 登录端口 ---\033[0m"
+                read -p "请输入新的 SSH 端口号 (1024-65535 之间，直接回车取消): " new_port
+                if [[ -n "$new_port" && "$new_port" =~ ^[0-9]+$ && "$new_port" -ge 1024 && "$new_port" -le 65535 ]]; then
+                    echo -e "\033[1;33m--> 正在修改 SSH 端口配置...\033[0m"
+                    # 确保存在 Port 行并覆盖
+                    grep -q "^#*Port" /etc/ssh/sshd_config || echo "Port $CURRENT_SSH_PORT" >> /etc/ssh/sshd_config
+                    sed -i "s/^#*Port .*/Port $new_port/" /etc/ssh/sshd_config
+                    
+                    # 智能联动判断，如果 UFW 是开启的，必须主动放行新端口防止掉线
+                    if ufw status | grep -qw "active"; then
+                        ufw allow ${new_port}/tcp
+                        echo -e "\033[1;32m已自动在 UFW 防火墙中放行新端口 ${new_port}\033[0m"
+                    fi
+                    
+                    systemctl restart sshd
+                    echo -e "\033[1;32mSSH 端口已成功修改为 ${new_port}，并已重启生效！\033[0m"
+                    echo -e "\033[1;31m请注意：您当前的 SSH 连接暂不会断开，但下一次登录服务器请务必使用新端口。\033[0m"
+                else
+                    echo -e "\033[1;31m输入无效或已取消，端口保持为 ${CURRENT_SSH_PORT}。\033[0m"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            3)
+                config_ssh_key
+                ;;
+            0)
+                return
+                ;;
+            *)
+                echo -e "\033[1;31m无效的选择，请重新输入！\033[0m" && sleep 1
+                ;;
+        esac
+    done
+}
+
+# ==========================================
 # 主菜单
 # ==========================================
 main_menu() {
     while true; do
         clear
         echo -e "\033[1;35m=========================================================\033[0m"
-        echo -e "\033[1;36m               VPS 综合环境配置管理工具 2.1                \033[0m"
+        echo -e "\033[1;36m               VPS 综合环境配置管理工具 2.3                \033[0m"
         echo -e "\033[1;35m=========================================================\033[0m"
         echo -e " \033[1;34m系统环境:\033[0m \033[1;37m${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})\033[0m"
         echo -e " \033[1;34m当前内核:\033[0m \033[1;37m${KERNEL_VER}\033[0m"
@@ -614,6 +762,7 @@ main_menu() {
         echo "  5. 安装 Docker 与 Docker Compose 容器"
         echo "  6. IPv6 禁用/恢复"
         echo "  7. EasyCaddy 反向代理"
+        echo "  8. 安全管理 (UFW / Fail2Ban / SSH 配置)"
         echo "  9. 重启服务器 (Reboot)"
         echo "  0. 退出脚本"
         echo -e "\033[1;35m=========================================================\033[0m"
@@ -627,6 +776,7 @@ main_menu() {
             5) install_docker ;;
             6) manage_ipv6 ;;
             7) manage_caddy ;;
+            8) manage_security ;;
             9) 
                 echo -e "\033[1;31m系统正在重启，请稍后重新连接...\033[0m"
                 reboot 
