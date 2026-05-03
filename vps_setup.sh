@@ -953,7 +953,7 @@ main_menu() {
         echo "  5. 安装容器 （Docker / Docker Compose） "
         echo "  6. IPv6 禁用与恢复"
         echo "  7. EasyCaddy 反向代理"
-        echo "  8. 安全管理 (UFW / Fail2Ban / SSH 配置)"
+        echo "  8. 安全管理 (UFW / Fail2Ban / SSH) "
         echo "  9. 重启服务器 (Reboot)"
         echo "  0. 退出脚本"
         echo -e "\033[1;35m=========================================================\033[0m"
