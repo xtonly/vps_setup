@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (4.5 全能看板版)
+# VPS 综合初始化与管理工具 (4.6 看板修复与极致排版版)
 # ========================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -38,6 +38,13 @@ LOCAL_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v "127.
 PUBLIC_IPV4=$(curl -s4 --max-time 3 ifconfig.me || curl -s4 --max-time 3 api.ipify.org || echo "无法获取")
 PUBLIC_IPV6=$(curl -s6 --max-time 3 ifconfig.me || curl -s6 --max-time 3 ident.me || echo "无 IPv6")
 
+# 智能去重：如果内网 IP 与公网 IP 一致 (网卡直通)，则简化显示
+if [[ "$LOCAL_IP" == "$PUBLIC_IPV4" ]]; then
+    LOCAL_IP_STR="同公网 IPv4 (网卡直通)"
+else
+    LOCAL_IP_STR="$LOCAL_IP"
+fi
+
 # 系统与内核版本
 KERNEL_VER=$(uname -r)
 if [ -f /etc/os-release ]; then
@@ -57,14 +64,14 @@ CPU_MODEL=$(awk -F: '/model name/ {name=$2} END {print name}' /proc/cpuinfo | se
 [[ -z "$CPU_MODEL" ]] && CPU_MODEL="Unknown CPU"
 CPU_INFO="${CPU_CORES} Core(s) | ${CPU_MODEL}"
 
-# ASN 与地理位置智能探针 (超时 3 秒防止卡死)
-IP_API=$(curl -s -m 3 ip-api.com/line?fields=status,as,country,city 2>/dev/null)
+# ASN 与地理位置智能探针 (修正接口返回顺序错位问题)
+IP_API=$(curl -s -m 3 "http://ip-api.com/line?fields=status,country,city,as" 2>/dev/null)
 if [[ $(echo "$IP_API" | sed -n '1p') == "success" ]]; then
-    IP_ASN=$(echo "$IP_API" | sed -n '2p' | awk '{print $1}')
-    IP_LOC="$(echo "$IP_API" | sed -n '3p') / $(echo "$IP_API" | sed -n '4p')"
+    IP_LOC="$(echo "$IP_API" | sed -n '2p') / $(echo "$IP_API" | sed -n '3p')"
+    IP_ASN=$(echo "$IP_API" | sed -n '4p')
 else
     # 备用节点
-    IP_ASN=$(curl -s -m 3 ipinfo.io/org 2>/dev/null | awk '{print $1}')
+    IP_ASN=$(curl -s -m 3 ipinfo.io/org 2>/dev/null)
     IP_LOC="$(curl -s -m 3 ipinfo.io/country 2>/dev/null) / $(curl -s -m 3 ipinfo.io/city 2>/dev/null)"
     [[ -z "$IP_ASN" ]] && IP_ASN="Unknown ASN"
     [[ -z "$IP_LOC" || "$IP_LOC" == " / " ]] && IP_LOC="Unknown Location"
@@ -781,7 +788,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}           VPS 综合环境配置管理工具 4.5                       ${RESET}"
+        echo -e "${CYAN}           VPS 综合环境配置管理工具 4.6                       ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_VER}${RESET}"
@@ -789,7 +796,7 @@ main_menu() {
         echo -e " ${BLUE}内存状态 :${RESET} ${WHITE}${RAM_INFO}${RESET}"
         echo -e " ${BLUE}硬盘占用 :${RESET} ${WHITE}${DISK_INFO}${RESET}"
         echo -e "${MAGENTA}---------------------------------------------------------${RESET}"
-        echo -e " ${BLUE}内网 IPv4:${RESET} ${WHITE}${LOCAL_IP}${RESET}"
+        echo -e " ${BLUE}内网 IPv4:${RESET} ${WHITE}${LOCAL_IP_STR}${RESET}"
         echo -e " ${BLUE}公网 IPv4:${RESET} ${GREEN}${PUBLIC_IPV4}${RESET}"
         echo -e " ${BLUE}公网 IPv6:${RESET} ${GREEN}${PUBLIC_IPV6}${RESET}"
         echo -e " ${BLUE}网络 ASN :${RESET} ${WHITE}${IP_ASN}${RESET}"
