@@ -168,11 +168,11 @@ EOF
 menu_system_base() {
     while true; do
         clear
-        echo -e "${CYAN}============= [1] 系统基础设置 =============${RESET}"
+        echo -e "${CYAN}============== [1] 系统基础设置 ==============${RESET}"
         echo "  1. 设置 主机名 (Hostname) 与 Swap 虚拟内存"
         echo "  2. 管理 IPv6 状态 (加固禁用 / 恢复)"
         echo "  0. 返回主菜单"
-        echo -e "${MAGENTA}============================================${RESET}"
+        echo -e "${MAGENTA}==============================================${RESET}"
         read -p "请选择: " choice
         case "$choice" in
             1) setup_hostname_swap ;;
@@ -241,7 +241,7 @@ manage_kernel() {
         echo "3. 查看 当前系统已安装的所有内核包"
         echo "4. 深度 清理未使用内核 (卸载非运行中内核)"
         echo "0. 返回主菜单"
-        echo -e "${MAGENTA}----------------------------------------------------${RESET}"
+        echo -e "${MAGENTA}====================================================${RESET}"
         read -p "请选择 [0-4]: " kernel_choice
 
         case "$kernel_choice" in
@@ -427,12 +427,12 @@ manage_caddy() {
 menu_services() {
     while true; do
         clear
-        echo -e "${CYAN}============= [2] 网络与节点服务 =============${RESET}"
+        echo -e "${CYAN}================ [2] 网络与节点服务 ================${RESET}"
         echo "  1. 部署 E-Shoes 代理节点 (SS2022/Reality/Anytls)"
         echo "  2. 部署 EasyCaddy 反向代理系统"
         echo "  3. 部署 Docker 容器引擎"
         echo "  0. 返回主菜单"
-        echo -e "${MAGENTA}==============================================${RESET}"
+        echo -e "${MAGENTA}==================================================${RESET}"
         read -p "请选择: " choice
         case "$choice" in
             1) run_eshoes ;;
