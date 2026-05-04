@@ -228,7 +228,7 @@ force_boot_latest_installed() {
 manage_kernel() {
     while true; do
         clear
-        echo -e "${CYAN}=========== [5] 系统内核自适应与强制锁定管理 ===========${RESET}"
+        echo -e "${CYAN}========= [5] 系统内核自适应与强制锁定管理 =========${RESET}"
         
         if [ "$OS_ID" == "debian" ]; then
             echo "1. 安装 绝对稳定版云内核 (抓取 Release 源)"
@@ -241,7 +241,7 @@ manage_kernel() {
         echo "3. 查看当前系统已安装的所有内核包"
         echo "4. 深度清理未使用内核 (卸载非运行中内核)"
         echo "0. 返回主菜单"
-        echo -e "${MAGENTA}---------------------------------------------------------${RESET}"
+        echo -e "${MAGENTA}----------------------------------------------------${RESET}"
         read -p "请选择 [0-4]: " kernel_choice
 
         case "$kernel_choice" in
