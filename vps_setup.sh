@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理脚本 (4.0 最终交互优化版)
+# VPS 综合初始化与管理工具 (v4.5 全能看板版)
 # ========================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -30,13 +30,16 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # ==========================================
-# 获取 VPS 基础信息与系统识别
+# 获取 VPS 基础信息、网络与硬件状态 (缓存)
 # ==========================================
+# 网络 IP 抓取
 LOCAL_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v "127.0.0.1" | head -n 1)
+[[ -z "$LOCAL_IP" ]] && LOCAL_IP="未分配"
 PUBLIC_IPV4=$(curl -s4 --max-time 3 ifconfig.me || curl -s4 --max-time 3 api.ipify.org || echo "无法获取")
 PUBLIC_IPV6=$(curl -s6 --max-time 3 ifconfig.me || curl -s6 --max-time 3 ident.me || echo "无 IPv6")
-KERNEL_VER=$(uname -r)
 
+# 系统与内核版本
+KERNEL_VER=$(uname -r)
 if [ -f /etc/os-release ]; then
     . /etc/os-release
     OS_ID=${ID}
@@ -46,6 +49,25 @@ if [ -f /etc/os-release ]; then
 else
     echo -e "${RED}错误：无法识别的操作系统，此脚本仅支持 Debian / Ubuntu。${RESET}"
     exit 1
+fi
+
+# CPU 信息提取
+CPU_CORES=$(nproc 2>/dev/null || echo "1")
+CPU_MODEL=$(awk -F: '/model name/ {name=$2} END {print name}' /proc/cpuinfo | sed 's/^[ \t]*//')
+[[ -z "$CPU_MODEL" ]] && CPU_MODEL="Unknown CPU"
+CPU_INFO="${CPU_CORES} Core(s) | ${CPU_MODEL}"
+
+# ASN 与地理位置智能探针 (超时 3 秒防止卡死)
+IP_API=$(curl -s -m 3 ip-api.com/line?fields=status,as,country,city 2>/dev/null)
+if [[ $(echo "$IP_API" | sed -n '1p') == "success" ]]; then
+    IP_ASN=$(echo "$IP_API" | sed -n '2p' | awk '{print $1}')
+    IP_LOC="$(echo "$IP_API" | sed -n '3p') / $(echo "$IP_API" | sed -n '4p')"
+else
+    # 备用节点
+    IP_ASN=$(curl -s -m 3 ipinfo.io/org 2>/dev/null | awk '{print $1}')
+    IP_LOC="$(curl -s -m 3 ipinfo.io/country 2>/dev/null) / $(curl -s -m 3 ipinfo.io/city 2>/dev/null)"
+    [[ -z "$IP_ASN" ]] && IP_ASN="Unknown ASN"
+    [[ -z "$IP_LOC" || "$IP_LOC" == " / " ]] && IP_LOC="Unknown Location"
 fi
 
 # ==========================================
@@ -168,11 +190,11 @@ EOF
 menu_system_base() {
     while true; do
         clear
-        echo -e "${CYAN}============== [1] 系统基础设置 ==============${RESET}"
+        echo -e "${CYAN}============= [1] 系统基础设置 =============${RESET}"
         echo "  1. 设置 主机名 (Hostname) 与 Swap 虚拟内存"
         echo "  2. 管理 IPv6 状态 (加固禁用 / 恢复)"
         echo "  0. 返回主菜单"
-        echo -e "${MAGENTA}==============================================${RESET}"
+        echo -e "${MAGENTA}============================================${RESET}"
         read -p "请选择: " choice
         case "$choice" in
             1) setup_hostname_swap ;;
@@ -714,7 +736,6 @@ manage_tools() {
                 wget -N --no-check-certificate https://raw.githubusercontent.com/yulewang/cloudflare-api-v4-ddns/master/cf-v4-ddns.sh -O /root/cf-v4-ddns.sh
                 read -p "API Key: " cf_key; read -p "根域名(example.com): " cf_zone; read -p "CF邮箱: " cf_user; read -p "完整子域名(ddns.example.com): " cf_host
                 if [[ -n "$cf_key" && -n "$cf_host" ]]; then
-                    # 彻底修复变量名未命中导致脚本丢失 host 的问题，对齐官方最新库
                     sed -i "s/^CFKEY=.*/CFKEY=\"$cf_key\"/" /root/cf-v4-ddns.sh
                     sed -i "s/^CFZONE_NAME=.*/CFZONE_NAME=\"$cf_zone\"/" /root/cf-v4-ddns.sh
                     sed -i "s/^CFUSER=.*/CFUSER=\"$cf_user\"/" /root/cf-v4-ddns.sh
@@ -743,18 +764,36 @@ manage_tools() {
 }
 
 # ==========================================
-# 主菜单 (化繁为简)
+# 主菜单 (硬件探针与全能看板)
 # ==========================================
 main_menu() {
     while true; do
+        # 动态刷新 RAM 和 SSD 使用率
+        RAM_TOTAL=$(free -m | awk '/Mem:/ {printf "%.1f GB", $2/1024}')
+        RAM_USED=$(free -m | awk '/Mem:/ {printf "%.1f GB", $3/1024}')
+        SWAP_TOTAL=$(free -m | awk '/Swap:/ {printf "%.1f GB", $2/1024}')
+        RAM_INFO="${RAM_USED} / ${RAM_TOTAL} (Swap: ${SWAP_TOTAL})"
+        
+        DISK_TOTAL=$(df -h / | awk 'NR==2 {print $2}')
+        DISK_USED=$(df -h / | awk 'NR==2 {print $3}')
+        DISK_PCT=$(df -h / | awk 'NR==2 {print $5}')
+        DISK_INFO="${DISK_USED} / ${DISK_TOTAL} (${DISK_PCT})"
+
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}           VPS 综合环境配置管理工具 v4.0                      ${RESET}"
+        echo -e "${CYAN}           VPS 综合环境配置管理工具 v4.5 (全能看板版)      ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e " ${BLUE}系统环境:${RESET} ${WHITE}${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})${RESET}"
-        echo -e " ${BLUE}当前内核:${RESET} ${WHITE}${KERNEL_VER}${RESET}"
+        echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})${RESET}"
+        echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_VER}${RESET}"
+        echo -e " ${BLUE}CPU 信息 :${RESET} ${WHITE}${CPU_INFO}${RESET}"
+        echo -e " ${BLUE}内存状态 :${RESET} ${WHITE}${RAM_INFO}${RESET}"
+        echo -e " ${BLUE}硬盘占用 :${RESET} ${WHITE}${DISK_INFO}${RESET}"
+        echo -e "${MAGENTA}---------------------------------------------------------${RESET}"
+        echo -e " ${BLUE}内网 IPv4:${RESET} ${WHITE}${LOCAL_IP}${RESET}"
         echo -e " ${BLUE}公网 IPv4:${RESET} ${GREEN}${PUBLIC_IPV4}${RESET}"
         echo -e " ${BLUE}公网 IPv6:${RESET} ${GREEN}${PUBLIC_IPV6}${RESET}"
+        echo -e " ${BLUE}网络 ASN :${RESET} ${WHITE}${IP_ASN}${RESET}"
+        echo -e " ${BLUE}地理位置 :${RESET} ${WHITE}${IP_LOC}${RESET}"
         echo -e "${MAGENTA}---------------------------------------------------------${RESET}"
         echo -e "  ${YELLOW}1.${RESET} 系统基础设置 (主机名 / Swap / IPv6)"
         echo -e "  ${YELLOW}2.${RESET} 网络与节点服务 (Shoes / Caddy / Docker)"
