@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (4.6 看板修复与极致排版版)
+# VPS 综合初始化与管理工具 (4.7 看板增强版)
+# 包含 BBR 状态实时探测与极致排版
 # ========================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -58,13 +59,23 @@ else
     exit 1
 fi
 
+# 实时抓取 TCP 拥塞控制和队列算法状态
+TCP_CONG=$(sysctl net.ipv4.tcp_congestion_control 2>/dev/null | awk '{print $3}')
+TCP_QDISC=$(sysctl net.core.default_qdisc 2>/dev/null | awk '{print $3}')
+if [[ "$TCP_CONG" == "bbr" && "$TCP_QDISC" == "fq" ]]; then
+    KERNEL_EXTRA=" [BBR+FQ]"
+else
+    KERNEL_EXTRA=""
+fi
+KERNEL_DISPLAY="${KERNEL_VER}${KERNEL_EXTRA}"
+
 # CPU 信息提取
 CPU_CORES=$(nproc 2>/dev/null || echo "1")
 CPU_MODEL=$(awk -F: '/model name/ {name=$2} END {print name}' /proc/cpuinfo | sed 's/^[ \t]*//')
 [[ -z "$CPU_MODEL" ]] && CPU_MODEL="Unknown CPU"
 CPU_INFO="${CPU_CORES} Core(s) | ${CPU_MODEL}"
 
-# ASN 与地理位置智能探针 (修正接口返回顺序错位问题)
+# ASN 与地理位置智能探针
 IP_API=$(curl -s -m 3 "http://ip-api.com/line?fields=status,country,city,as" 2>/dev/null)
 if [[ $(echo "$IP_API" | sed -n '1p') == "success" ]]; then
     IP_LOC="$(echo "$IP_API" | sed -n '2p') / $(echo "$IP_API" | sed -n '3p')"
@@ -788,10 +799,10 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}           VPS 综合环境配置管理工具 4.6                       ${RESET}"
+        echo -e "${CYAN}           VPS 综合环境配置管理工具 4.7                       ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})${RESET}"
-        echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_VER}${RESET}"
+        echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
         echo -e " ${BLUE}CPU 信息 :${RESET} ${WHITE}${CPU_INFO}${RESET}"
         echo -e " ${BLUE}内存状态 :${RESET} ${WHITE}${RAM_INFO}${RESET}"
         echo -e " ${BLUE}硬盘占用 :${RESET} ${WHITE}${DISK_INFO}${RESET}"
