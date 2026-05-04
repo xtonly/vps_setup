@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理脚本 (v4.0 模块化重构版)
+# VPS 综合初始化与管理脚本 (v4.1 修复优化版)
 # ========================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -247,10 +247,10 @@ manage_kernel() {
                 echo -e "${YELLOW}--> 正在处理稳定版内核强行锁定安装请求...${RESET}"
                 apt update -y
                 if [ "$OS_ID" == "debian" ]; then
-                    # 终极拦截逻辑：精准获取 stable 仓库中的确切版本号
-                    EXACT_STABLE_VER=$(apt-cache madison linux-image-cloud-amd64 | grep " ${OS_CODENAME}/" | head -n 1 | awk '{print $3}')
+                    # 精准拦截逻辑修复：排除 backports，抓取所有常规源(含 security/updates)的最高版本
+                    EXACT_STABLE_VER=$(apt-cache madison linux-image-cloud-amd64 | grep -v "backports" | head -n 1 | awk '{print $3}')
                     if [[ -n "$EXACT_STABLE_VER" ]]; then
-                        echo -e "${GREEN}成功抓取到纯净稳定版包版本号: ${EXACT_STABLE_VER}${RESET}"
+                        echo -e "${GREEN}成功抓取到纯净稳定版(含安全更新)包版本号: ${EXACT_STABLE_VER}${RESET}"
                         LC_ALL=C apt install -y --reinstall --allow-downgrades linux-image-cloud-amd64=${EXACT_STABLE_VER}
                     else
                         echo -e "${RED}未能精确抓取版本，将尝试基础安装。${RESET}"
@@ -621,8 +621,33 @@ menu_security() {
 }
 
 # ==========================================
-# 模块 5：实用工具箱 (DDNS/测速/Trace)
+# 模块 5：实用工具箱 (DDNS/测速/Trace 等)
 # ==========================================
+run_network_tests() {
+    while true; do
+        clear
+        echo -e "${CYAN}=========== 综合网络与流媒体测试 ===========${RESET}"
+        echo "  1. NodeQuality 综合节点测试"
+        echo "  2. IP 质量与欺诈分数查询"
+        echo "  3. 流媒体解锁测试 (含 Ins 状态)"
+        echo "  4. 流媒体解锁测试 (经典版)"
+        echo "  5. 硬盘测速与性能测试 (Aniverse)"
+        echo "  0. 返回上一级"
+        echo -e "${MAGENTA}--------------------------------------------${RESET}"
+        read -p "请选择测试项 [0-5]: " test_choice
+
+        case "$test_choice" in
+            1) clear; echo -e "${YELLOW}--> 开始运行...${RESET}"; bash <(curl -sL https://run.NodeQuality.com); echo ""; read -n 1 -s -r -p "按任意键返回..." ;;
+            2) clear; echo -e "${YELLOW}--> 开始查询...${RESET}"; bash <(curl -Ls https://Check.Place) -I; echo ""; read -n 1 -s -r -p "按任意键返回..." ;;
+            3) clear; echo -e "${YELLOW}--> 开始运行...${RESET}"; bash <(curl -L -s check.unlock.media); echo ""; read -n 1 -s -r -p "按任意键返回..." ;;
+            4) clear; echo -e "${YELLOW}--> 开始运行...${RESET}"; bash <(curl -L -s https://github.com/1-stream/RegionRestrictionCheck/raw/main/check.sh); echo ""; read -n 1 -s -r -p "按任意键返回..." ;;
+            5) clear; echo -e "${YELLOW}--> 开始执行...${RESET}"; wget -q https://github.com/Aniverse/A/raw/i/a && bash a; echo ""; read -n 1 -s -r -p "按任意键返回..." ;;
+            0) return ;;
+            *) echo -e "${RED}无效的选择！${RESET}" && sleep 1 ;;
+        esac
+    done
+}
+
 manage_tools() {
     while true; do
         clear
@@ -691,7 +716,7 @@ main_menu() {
     while true; do
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}           VPS 综合环境配置管理工具 v4.0 (重构版)          ${RESET}"
+        echo -e "${CYAN}           VPS 综合环境配置管理工具 v4.1 (修复重构版)      ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境:${RESET} ${WHITE}${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})${RESET}"
         echo -e " ${BLUE}当前内核:${RESET} ${WHITE}${KERNEL_VER}${RESET}"
