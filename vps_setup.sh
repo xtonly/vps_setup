@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理脚本 (v4.3 DDNS 修复版)
+# VPS 综合初始化与管理脚本 (v4.4 最终交互优化版)
 # ========================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -144,7 +144,8 @@ EOF
                 fi
                 echo "blacklist ipv6" > /etc/modprobe.d/blacklist-ipv6.conf
                 PUBLIC_IPV6="已禁用"
-                echo -e "${GREEN}IPv6 已彻底禁用！${RESET}"; sleep 1 ;;
+                echo -e "${GREEN}IPv6 已彻底禁用！${RESET}"
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             2)
                 rm -f /etc/sysctl.d/99-disable-ipv6.conf
                 sysctl -w net.ipv6.conf.all.disable_ipv6=0 > /dev/null 2>&1
@@ -157,7 +158,8 @@ EOF
                 rm -f /etc/modprobe.d/blacklist-ipv6.conf
                 sysctl --system > /dev/null 2>&1
                 PUBLIC_IPV6=$(curl -s6 --max-time 3 ifconfig.me || curl -s6 --max-time 3 ident.me || echo "无 IPv6")
-                echo -e "${GREEN}IPv6 已恢复开启！${RESET}"; sleep 1 ;;
+                echo -e "${GREEN}IPv6 已恢复开启！${RESET}"
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             0) return ;;
         esac
     done
@@ -384,7 +386,7 @@ manage_caddy() {
                     systemctl restart caddy
                     echo -e "${GREEN}代理已添加: ${domain} -> ${upstream}${RESET}"
                 fi
-                sleep 2 ;;
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             3)
                 if [ -f "$PROXY_CONFIG_FILE" ]; then
                     lineno=0
@@ -412,10 +414,11 @@ manage_caddy() {
                         echo -e "${GREEN}已删除！${RESET}"
                     fi
                 fi
-                sleep 2 ;;
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             5)
                 systemctl stop caddy; apt-get remove --purge -y caddy; rm -f "$CADDYFILE" "$PROXY_CONFIG_FILE"
-                echo -e "${GREEN}已卸载。${RESET}"; sleep 1 ;;
+                echo -e "${GREEN}已卸载。${RESET}"
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             0) return ;;
         esac
     done
@@ -497,11 +500,12 @@ manage_ufw() {
                 ufw allow 80/tcp >/dev/null 2>&1
                 ufw allow 443/tcp >/dev/null 2>&1
                 ufw --force enable
-                echo -e "${GREEN}UFW 已启用，SSH 端口已硬核放行！${RESET}"; sleep 2 ;;
-            2) read -p "输入放行端口: " pt; [[ -n "$pt" ]] && ufw allow "$pt"; sleep 1 ;;
-            3) read -p "输入封禁端口: " pt; [[ -n "$pt" ]] && ufw deny "$pt"; sleep 1 ;;
-            4) ufw status numbered; read -p "输入删除编号: " num; [[ "$num" =~ ^[0-9]+$ ]] && ufw --force delete "$num"; sleep 1 ;;
-            5) ufw --force disable; apt purge -y ufw; echo -e "${GREEN}已卸载。${RESET}"; sleep 1 ;;
+                echo -e "${GREEN}UFW 已启用，SSH 端口已硬核放行！${RESET}"
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            2) read -p "输入放行端口: " pt; [[ -n "$pt" ]] && ufw allow "$pt"; echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            3) read -p "输入封禁端口: " pt; [[ -n "$pt" ]] && ufw deny "$pt"; echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            4) ufw status numbered; read -p "输入删除编号: " num; [[ "$num" =~ ^[0-9]+$ ]] && ufw --force delete "$num"; echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            5) ufw --force disable; apt purge -y ufw; echo -e "${GREEN}已卸载。${RESET}"; echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             0) return ;;
         esac
     done
@@ -540,14 +544,16 @@ EOF
                     USER_IP=$(echo $SSH_CLIENT | awk '{print $1}')
                     [[ -n "$USER_IP" ]] && sed -i "s/^ignoreip.*/& $USER_IP/" "$JAIL_FILE"
                 fi
-                systemctl enable --now fail2ban; echo -e "${GREEN}已启用。${RESET}"; sleep 1 ;;
+                systemctl enable --now fail2ban; echo -e "${GREEN}已启用。${RESET}"
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             2)
                 JAIL_FILE="/etc/fail2ban/jail.local"
                 read -p "新最大容错次数: " nm; read -p "新封禁时长(秒): " nb
                 [[ -n "$nm" ]] && sed -i "s/^maxretry.*/maxretry = $nm/" "$JAIL_FILE"
                 [[ -n "$nb" ]] && sed -i "s/^bantime.*/bantime = $nb/" "$JAIL_FILE"
-                systemctl restart fail2ban; echo -e "${GREEN}已更新！${RESET}"; sleep 1 ;;
-            3) fail2ban-client status sshd; read -p "输入解封 IP(直接回车退出): " ip; [[ -n "$ip" ]] && fail2ban-client set sshd unbanip "$ip"; ;;
+                systemctl restart fail2ban; echo -e "${GREEN}已更新！${RESET}"
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            3) fail2ban-client status sshd; read -p "输入解封 IP(直接回车退出): " ip; [[ -n "$ip" ]] && fail2ban-client set sshd unbanip "$ip"; echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             0) return ;;
         esac
     done
@@ -581,7 +587,8 @@ manage_ssh() {
                     systemctl restart sshd
                     if [ -f /etc/fail2ban/jail.local ]; then sed -i "s/^port = .*/port = $new_port/" /etc/fail2ban/jail.local; systemctl restart fail2ban >/dev/null 2>&1; fi
                     echo -e "${GREEN}端口修改完毕，护盾已刷新！${RESET}"
-                fi; sleep 2 ;;
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             2)
                 AUTH_FILE="/root/.ssh/authorized_keys"
                 mkdir -p /root/.ssh && chmod 700 /root/.ssh && touch $AUTH_FILE && chmod 600 $AUTH_FILE
@@ -590,12 +597,14 @@ manage_ssh() {
                 ssh-keygen -t ed25519 -f ${KEY_PATH} -N "" -q
                 cat ${KEY_PATH}.pub >> $AUTH_FILE
                 echo -e "\n${RED}请复制私钥：${RESET}\n$(cat ${KEY_PATH})\n"
-                read -n 1 -s -r -p "按任意键返回..." ;;
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             3)
                 AUTH_FILE="/root/.ssh/authorized_keys"
                 mkdir -p /root/.ssh && touch $AUTH_FILE && chmod 600 $AUTH_FILE
-                read -p "粘贴公钥: " pk; [[ -n "$pk" ]] && echo "$pk" >> $AUTH_FILE && echo -e "${GREEN}导入成功！${RESET}"; sleep 1 ;;
-            4) sed -i 's/^#*PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config; systemctl restart sshd; echo -e "${GREEN}已禁用密码！${RESET}"; sleep 1 ;;
+                read -p "粘贴公钥: " pk; [[ -n "$pk" ]] && echo "$pk" >> $AUTH_FILE && echo -e "${GREEN}导入成功！${RESET}"
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            4) sed -i 's/^#*PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config; systemctl restart sshd; echo -e "${GREEN}已禁用密码！${RESET}"
+               echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             0) return ;;
         esac
     done
@@ -678,7 +687,7 @@ manage_tools() {
                     fi
                     echo -e "${GREEN}启动成功，端口 $iperf_port${RESET}"
                 elif [ "$ip_ch" == "2" ]; then pkill iperf3; apt purge -y iperf3; echo -e "${GREEN}已卸载${RESET}"; fi
-                sleep 2 ;;
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             2)
                 read -p "1.部署 2.卸载 : " dk_ch
                 if [ "$dk_ch" == "1" ]; then
@@ -694,35 +703,39 @@ manage_tools() {
                     docker rm -f SpeedTest >/dev/null 2>&1
                     echo -e "${GREEN}SpeedTest 容器已卸载。${RESET}"
                 fi
-                sleep 3 ;;
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             3)
                 read -p "1.安装 2.卸载 : " sp_ch
                 if [ "$sp_ch" == "1" ]; then apt update -y && apt install -y speedtest-cli; echo -e "${GREEN}安装完成${RESET}";
                 elif [ "$sp_ch" == "2" ]; then apt purge -y speedtest-cli; echo -e "${GREEN}已卸载${RESET}"; fi
-                sleep 1 ;;
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             4)
                 apt update -y && apt install -y curl wget socat cron
                 wget -N --no-check-certificate https://raw.githubusercontent.com/yulewang/cloudflare-api-v4-ddns/master/cf-v4-ddns.sh -O /root/cf-v4-ddns.sh
                 read -p "API Key: " cf_key; read -p "根域名(example.com): " cf_zone; read -p "CF邮箱: " cf_user; read -p "完整子域名(ddns.example.com): " cf_host
                 if [[ -n "$cf_key" && -n "$cf_host" ]]; then
+                    # 彻底修复变量名未命中导致脚本丢失 host 的问题，对齐官方最新库
                     sed -i "s/^CFKEY=.*/CFKEY=\"$cf_key\"/" /root/cf-v4-ddns.sh
-                    sed -i "s/^CFZONE=.*/CFZONE=\"$cf_zone\"/" /root/cf-v4-ddns.sh
+                    sed -i "s/^CFZONE_NAME=.*/CFZONE_NAME=\"$cf_zone\"/" /root/cf-v4-ddns.sh
                     sed -i "s/^CFUSER=.*/CFUSER=\"$cf_user\"/" /root/cf-v4-ddns.sh
-                    sed -i "s/^CFHOST=.*/CFHOST=\"$cf_host\"/" /root/cf-v4-ddns.sh
+                    sed -i "s/^CFRECORD_NAME=.*/CFRECORD_NAME=\"$cf_host\"/" /root/cf-v4-ddns.sh
                     chmod +x /root/cf-v4-ddns.sh
                     echo -e "${YELLOW}正在执行首次解析...${RESET}"
                     /root/cf-v4-ddns.sh
                     (crontab -l 2>/dev/null | grep -v "cf-v4-ddns.sh"; echo "*/2 * * * * /root/cf-v4-ddns.sh >/dev/null 2>&1") | crontab -
                     echo -e "${GREEN}DDNS 部署完成！${RESET}"
-                fi; sleep 2 ;;
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             5)
                 read -p "1.安装 2.卸载 : " nt_ch
                 if [ "$nt_ch" == "1" ]; then curl nxtrace.org/nt | bash; echo -e "${GREEN}安装完成${RESET}";
-                elif [ "$nt_ch" == "2" ]; then rm -f /usr/local/bin/nexttrace; echo -e "${GREEN}已卸载${RESET}"; fi; sleep 1 ;;
+                elif [ "$nt_ch" == "2" ]; then rm -f /usr/local/bin/nexttrace; echo -e "${GREEN}已卸载${RESET}"; fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             6)
                 read -p "1.安装 2.卸载 : " mtr_ch
                 if [ "$mtr_ch" == "1" ]; then apt update -y && apt install -y mtr; echo -e "${GREEN}安装完成${RESET}";
-                elif [ "$mtr_ch" == "2" ]; then apt purge -y mtr; echo -e "${GREEN}已卸载${RESET}"; fi; sleep 1 ;;
+                elif [ "$mtr_ch" == "2" ]; then apt purge -y mtr; echo -e "${GREEN}已卸载${RESET}"; fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             7) run_network_tests ;;
             0) return ;;
         esac
@@ -736,7 +749,7 @@ main_menu() {
     while true; do
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}           VPS 综合环境配置管理工具 v4.3 (修复重构版)      ${RESET}"
+        echo -e "${CYAN}           VPS 综合环境配置管理工具 v4.4 (修复重构版)      ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境:${RESET} ${WHITE}${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})${RESET}"
         echo -e " ${BLUE}当前内核:${RESET} ${WHITE}${KERNEL_VER}${RESET}"
