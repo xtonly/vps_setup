@@ -2,6 +2,7 @@
 
 # ========================================================
 # VPS 综合初始化与管理脚本 (集成 E-Shoes, Caddy, 独立 UFW/F2B)
+# 包含强效内核接管与全能工具箱
 # ========================================================
 
 # 确保使用 root 权限运行
@@ -13,7 +14,7 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 
 # ==========================================
-# Caddy & 全局变量配置
+# Caddy 全局变量配置
 # ==========================================
 CADDYFILE="/etc/caddy/Caddyfile"
 BACKUP_CADDYFILE="${CADDYFILE}.bak"
@@ -40,25 +41,26 @@ else
 fi
 
 # ==========================================
-# 深度清理未使用内核函数 (双系统兼容)
+# 深度清理未使用内核函数 (绝对纯净版)
 # ==========================================
 purge_unused_kernels() {
-    echo -e "\033[1;33m--> 正在扫描并清除当前未使用的内核包...\033[0m"
     CURRENT_KERNEL=$(uname -r)
+    echo -e "\033[1;33m--> 正在深度扫描并清除所有未在运行的内核...\033[0m"
+    echo -e "\033[1;34m当前受保护的运行中内核: $CURRENT_KERNEL\033[0m"
     
-    # 严格排除当前正在运行的内核
+    # 严格排除当前正在运行的内核，筛选出所有其他内核包（不论版本高低）
     OLD_PACKAGES=$(dpkg -l | grep -E '^ii  linux-(image|headers|modules|base|binary|tools|kbuild)-[0-9]' | awk '{print $2}' | grep -v "$CURRENT_KERNEL")
     
     if [ -n "$OLD_PACKAGES" ]; then
         for pkg in $OLD_PACKAGES; do
-            echo -e "发现非运行状态内核，正在强制卸载: \033[1;31m$pkg\033[0m"
+            echo -e "发现未运行的内核包，正在强制卸载: \033[1;31m$pkg\033[0m"
             apt-get purge -y "$pkg" > /dev/null 2>&1
         done
         apt-get autoremove --purge -y > /dev/null 2>&1
         update-grub 2>/dev/null
         echo -e "\033[1;32m所有非当前运行的内核已深度清理完成，系统保持最清洁状态！\033[0m"
     else
-        echo -e "\033[1;32m没有检测到需要清理的无用内核 (当前正运行: $CURRENT_KERNEL)。\033[0m"
+        echo -e "\033[1;32m没有检测到需要清理的未使用内核。\033[0m"
     fi
 }
 
@@ -85,7 +87,6 @@ auto_init() {
         systemctl enable --now chrony
 
         echo -e "\033[1;33m--> 应用 BBR + FQ 强力持久化配置...\033[0m"
-        # 清除旧版无用配置以防止冗余冲突
         sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
         sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
         
@@ -115,10 +116,10 @@ EOF
 check_kernel_cleanup() {
     if [ -f "/root/.vps_need_autoremove" ]; then
         clear
-        echo -e "\033[1;36m[系统维护] 检测到您之前更换了内核并已重启系统。\033[0m"
+        echo -e "\033[1;36m[系统维护] 检测到您已完成内核更换并重启了系统。\033[0m"
         purge_unused_kernels
         rm -f "/root/.vps_need_autoremove"
-        echo -e "\033[1;32m系统内核清洁任务完成，已达到最佳状态！\033[0m\n"
+        echo -e "\033[1;32m系统内核清洁任务完成，已剔除所有干扰内核！\033[0m\n"
         sleep 3
     fi
 }
@@ -161,26 +162,34 @@ setup_hostname_swap() {
 }
 
 # =============================================
-# 动态内核安装逻辑 (强行锁定启动项)
+# GRUB 底层接管逻辑 (彻底解决版本号抢占问题)
 # =============================================
 force_boot_latest_installed() {
-    local target_pkg="$1"
-    echo -e "\033[1;33m--> 正在配置底层 GRUB 引导，强制系统使用新安装的内核启动...\033[0m"
+    echo -e "\033[1;33m--> 正在智能提取刚刚安装的内核实体...\033[0m"
+    # 使用 ls -1c 按 inode 更改时间排序，精准抓取刚才解压的最新内核映像
+    local target_k=$(ls -1c /boot/vmlinuz-* | head -n 1 | sed 's/\/boot\/vmlinuz-//g')
     
-    # 提取刚安装的核心版本号
-    local new_ver=$(dpkg -l | grep "$target_pkg" | grep "^ii" | awk '{print $2}' | sed "s/$target_pkg-//g" | sort -V | tail -n 1)
-    
-    if [[ -n "$new_ver" ]]; then
-        # 寻找匹配该版本号的 grub 菜单入口名称
-        local menu_entry=$(grep -i "submenu" /boot/grub/grub.cfg -A 50 | grep "menuentry" | grep "$new_ver" | head -n 1 | awk -F"'" '{print $2}')
-        if [[ -n "$menu_entry" ]]; then
-            sed -i 's/^GRUB_DEFAULT=.*/GRUB_DEFAULT=saved/' /etc/default/grub
-            update-grub > /dev/null 2>&1
-            grub-set-default "Advanced options for ${SYS_PRETTY_NAME}>${menu_entry}"
-            echo -e "\033[1;32m启动项已成功强行锁定至: ${new_ver}\033[0m"
+    if [[ -n "$target_k" ]]; then
+        echo -e "\033[1;36m锁定目标安装内核: $target_k\033[0m"
+        
+        sed -i 's/^GRUB_DEFAULT=.*/GRUB_DEFAULT=saved/' /etc/default/grub
+        update-grub > /dev/null 2>&1
+        
+        # 动态解析 grub.cfg 截取确切的菜单标题 (完美兼容纯净版与子菜单)
+        local submenu_str=$(grep "submenu " /boot/grub/grub.cfg | head -n 1 | awk -F"'" '{print $2}')
+        local entry_str=$(grep "menuentry " /boot/grub/grub.cfg | grep "$target_k" | head -n 1 | awk -F"'" '{print $2}')
+        
+        if [[ -n "$submenu_str" && -n "$entry_str" ]]; then
+            grub-set-default "$submenu_str>$entry_str"
+            echo -e "\033[1;32mGRUB 底层引导已强行锁定为: $entry_str\033[0m"
+        elif [[ -z "$submenu_str" && -n "$entry_str" ]]; then
+            grub-set-default "$entry_str"
+            echo -e "\033[1;32mGRUB 底层引导已强行锁定为: $entry_str\033[0m"
         else
-            echo -e "\033[1;31m警告：未能在 GRUB 中精确定位到内核 ${new_ver}，将依赖系统默认顺序引导。\033[0m"
+            echo -e "\033[1;31m警告：在 GRUB 中未找到该内核标题，将执行系统默认顺序。\033[0m"
         fi
+    else
+        echo -e "\033[1;31m未能获取到最新安装的内核文件信息！\033[0m"
     fi
 }
 
@@ -190,7 +199,7 @@ manage_kernel() {
         echo -e "\033[1;36m======== ${OS_ID^} 系统内核自适应管理 ========\033[0m"
         
         if [ "$OS_ID" == "debian" ]; then
-            echo "1. 安装 稳定版 云内核 (强行安装并设为首选启动)"
+            echo "1. 安装 稳定版 云内核 (安装后强制锁定为首选启动)"
             echo "2. 安装 最新版 云内核 (${OS_CODENAME}-backports)"
         elif [ "$OS_ID" == "ubuntu" ]; then
             echo "1. 安装 稳定版 虚拟化内核 (linux-virtual)"
@@ -198,45 +207,39 @@ manage_kernel() {
         fi
         
         echo "3. 查看当前系统已安装的所有内核包"
-        echo "4. 清理未使用中内核 (深度移除旧版本)"
+        echo "4. 深度清理未使用内核 (保留当前运行，卸载其他所有版本)"
         echo "0. 返回主菜单"
         echo "-------------------------------------------"
         read -p "请选择 [0-4]: " kernel_choice
 
         TMP_LOG=$(mktemp) 
-        PKG_NAME=""
 
         case "$kernel_choice" in
             1)
                 echo -e "\033[1;33m--> 正在处理稳定版内核强行安装请求...\033[0m"
                 apt update -y
                 if [ "$OS_ID" == "debian" ]; then
-                    PKG_NAME="linux-image-cloud-amd64"
-                    LC_ALL=C apt install -y --reinstall $PKG_NAME | tee $TMP_LOG
+                    LC_ALL=C apt install -y --reinstall linux-image-cloud-amd64 | tee $TMP_LOG
                 else
-                    PKG_NAME="linux-virtual"
-                    LC_ALL=C apt install -y --reinstall $PKG_NAME | tee $TMP_LOG
+                    LC_ALL=C apt install -y --reinstall linux-virtual | tee $TMP_LOG
                 fi
-                force_boot_latest_installed "$PKG_NAME"
+                force_boot_latest_installed
                 ;;
             2)
                 echo -e "\033[1;33m--> 正在处理最新版内核安装请求...\033[0m"
                 apt update -y
                 if [ "$OS_ID" == "debian" ]; then
-                    PKG_NAME="linux-image-cloud-amd64"
-                    LC_ALL=C apt install -t ${OS_CODENAME}-backports $PKG_NAME -y | tee $TMP_LOG
+                    LC_ALL=C apt install -t ${OS_CODENAME}-backports linux-image-cloud-amd64 -y | tee $TMP_LOG
                 else
                     HWE_PKG="linux-generic-hwe-${OS_VER}"
                     if apt-cache show $HWE_PKG >/dev/null 2>&1; then
-                        PKG_NAME="$HWE_PKG"
                         LC_ALL=C apt install $HWE_PKG -y | tee $TMP_LOG
                     else
-                        PKG_NAME="linux-generic"
                         echo -e "\033[1;33m当前版本 ($OS_VER) 无独立 HWE 分支，正在安装 linux-generic...\033[0m"
                         LC_ALL=C apt install linux-generic -y | tee $TMP_LOG
                     fi
                 fi
-                force_boot_latest_installed "$PKG_NAME"
+                force_boot_latest_installed
                 ;;
             3)
                 echo -e "\033[1;33m--> 系统当前已安装的内核包列表：\033[0m"
@@ -268,9 +271,9 @@ manage_kernel() {
 
         rm -f "$TMP_LOG"
         touch "/root/.vps_need_autoremove"
-        echo -e "\n\033[1;32m内核安装/更新策略已部署完毕！\033[0m"
-        echo -e "\033[1;31m注意：为了使内核彻底干净替换，需要重启生效。\033[0m"
-        echo -e "\033[1;33m启动后系统会自动执行清理任务，将不在使用中的旧版本全部剔除。\033[0m\n"
+        echo -e "\n\033[1;32m内核底层锁死策略已应用完毕！\033[0m"
+        echo -e "\033[1;31m注意：为了使所选内核完全生效并清退闲杂版本，必须重启系统。\033[0m"
+        echo -e "\033[1;33m重启并重新运行脚本时，系统会自动启动深度清洁程序。\033[0m\n"
         read -p "是否立即重启服务器以应用新内核？(y/n) " is_reboot
         if [[ "$is_reboot" =~ ^[Yy]$ ]]; then
             echo "系统正在重启，请稍后重新连接 SSH，并再次运行本脚本以完成清理任务..."
@@ -315,7 +318,6 @@ run_eshoes() {
     echo -e "\033[1;36m========= 启动 E-Shoes 代理节点一键搭建脚本 =========\033[0m"
     echo -e "\033[1;33m--> 正在拉取并执行最新版 E-Shoes...\033[0m"
     wget -4 --no-check-certificate -qO eshoes.sh https://raw.githubusercontent.com/xtonly/E-Shoes/refs/heads/main/eshoes.sh
-    # 强制将加密方式修改为 2022-blake3-aes-128-gcm
     sed -i 's/SS_METHOD=.*/SS_METHOD="2022-blake3-aes-128-gcm"/' eshoes.sh
     chmod +x eshoes.sh && ./eshoes.sh
     echo ""
@@ -398,12 +400,12 @@ manage_tools() {
     while true; do
         clear
         echo -e "\033[1;36m================ 实用工具箱 (Tools) ================\033[0m"
-        echo "  1. iperf3 测速工具 (可自定义端口安装/卸载)"
-        echo "  2. mtr 路由追踪工具 (安装/卸载)"
-        echo "  3. Cloudflare DDNS 动态域名解析 (安装与配置)"
-        echo "  4. nexttrace 路由追踪 (安装/卸载)"
-        echo "  5. speedtest-cli 官方测速工具 (安装/卸载)"
-        echo "  6. 部署 SpeedTest 简易测速面板 (Docker 容器端)"
+        echo "  1. 01. iperf3 的安装和删除 (自定义 iperf3 端口)"
+        echo "  2. 02. mtr 安装与删除"
+        echo "  3. 03. cf ddns 安装 (自定义域名/API key等配置)"
+        echo "  4. 04. nexttrace 安装与删除"
+        echo "  5. 05. speedtest-cli 安装与删除"
+        echo "  6. 06. 一键简易测速服务器 (docker run -idt --name SpeedTest -p 2333:80 langren1353/speedtest)"
         echo "  0. 返回主菜单"
         echo -e "\033[1;35m----------------------------------------------------\033[0m"
         read -p "请选择操作 [0-6]: " tool_choice
@@ -419,13 +421,12 @@ manage_tools() {
                     apt update -y && apt install -y iperf3
                     read -p "请输入您想使用的 iperf3 端口 (默认 5201): " iperf_port
                     [[ -z "$iperf_port" ]] && iperf_port=5201
-                    # 停止已有的
                     pkill iperf3
-                    # 后台启动
                     iperf3 -s -p $iperf_port -D
                     echo -e "\033[1;32miperf3 服务端已在端口 ${iperf_port} 启动。\033[0m"
                     if ufw status | grep -qw "active"; then
-                        ufw allow ${iperf_port}
+                        ufw allow ${iperf_port}/tcp >/dev/null 2>&1
+                        ufw allow ${iperf_port}/udp >/dev/null 2>&1
                         echo -e "\033[1;32m已在 UFW 防火墙中放行端口 ${iperf_port}\033[0m"
                     fi
                 elif [ "$ip_ch" == "2" ]; then
@@ -456,7 +457,7 @@ manage_tools() {
                 echo -e "\033[1;33m正在初始化系统环境与依赖...\033[0m"
                 apt update -y && apt install -y curl wget socat cron
                 
-                echo -e "\033[1;33m正在拉取 yulewang/cloudflare-api-v4-ddns 脚本[cite: 9, 10]...\033[0m"
+                echo -e "\033[1;33m正在拉取 yulewang/cloudflare-api-v4-ddns 脚本...\033[0m"
                 wget -N --no-check-certificate https://raw.githubusercontent.com/yulewang/cloudflare-api-v4-ddns/master/cf-v4-ddns.sh -O /root/cf-v4-ddns.sh
                 
                 echo -e "\n请准备好您的 Cloudflare 信息："
@@ -521,11 +522,11 @@ manage_tools() {
                     curl -fsSL https://get.docker.com | bash -s docker
                     systemctl enable --now docker
                 fi
-                echo -e "\033[1;33m正在拉取并启动 SpeedTest 容器[cite: 8]...\033[0m"
+                echo -e "\033[1;33m正在执行: docker run -idt --name SpeedTest -p 2333:80 langren1353/speedtest ...\033[0m"
                 docker run -idt --name SpeedTest -p 2333:80 langren1353/speedtest
                 
                 if ufw status | grep -qw "active"; then
-                    ufw allow 2333/tcp
+                    ufw allow 2333/tcp >/dev/null 2>&1
                 fi
                 
                 echo -e "\033[1;32m部署成功！请在浏览器访问 http://${PUBLIC_IPV4}:2333\033[0m"
@@ -537,9 +538,8 @@ manage_tools() {
     done
 }
 
-
 # ==========================================
-# Caddy 辅助判断函数
+# Caddy 辅助判断与管理函数
 # ==========================================
 check_caddy_installed() {
     if command -v caddy >/dev/null 2>&1; then return 0; else return 1; fi
@@ -555,7 +555,6 @@ check_port_running() {
 }
 
 manage_caddy() {
-    # 此处逻辑与上一版本保持一致，节省版面简写核心内容
     while true; do
         clear
         echo -e "\033[1;36m=============== EasyCaddy 反向代理管理 ===============\033[0m"
@@ -608,7 +607,25 @@ manage_caddy() {
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             4)
-                # 省略删除逻辑（与上一版本完全相同）
+                if [ -f "$PROXY_CONFIG_FILE" ]; then
+                    lineno=0
+                    while IFS= read -r line; do
+                        lineno=$((lineno+1))
+                        echo -e "  \033[1;37m${lineno})\033[0m ${line}"
+                    done < "$PROXY_CONFIG_FILE"
+                    read -p "请输入要删除的配置编号: " proxy_number
+                    if [[ "$proxy_number" =~ ^[0-9]+$ ]]; then
+                        sed -i "${proxy_number}d" "$PROXY_CONFIG_FILE"
+                        cp "$BACKUP_CADDYFILE" "$CADDYFILE"
+                        while IFS= read -r line; do
+                            d=$(echo "$line" | awk -F' -> ' '{print $1}')
+                            u=$(echo "$line" | awk -F' -> ' '{print $2}')
+                            echo "${d} { reverse_proxy ${u} }" >> "$CADDYFILE"
+                        done < "$PROXY_CONFIG_FILE"
+                        systemctl restart caddy
+                        echo -e "\033[1;32m选定的反向代理删除成功，Caddy 已重启！\033[0m"
+                    fi
+                fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             5)
                 systemctl restart caddy; echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
@@ -621,7 +638,7 @@ manage_caddy() {
 }
 
 # ==========================================
-# 底层 SSH 防火墙护盾
+# 底层 SSH 防火墙护盾与安全模块
 # ==========================================
 get_current_ssh_port() {
     local port=$(sshd -T 2>/dev/null | grep -i "^port " | head -n 1 | awk '{print $2}' | tr -d '\r\n')
@@ -653,9 +670,6 @@ apply_ssh_anti_lockout() {
     fi
 }
 
-# ==========================================
-# 解耦的安全管理模块 (UFW / F2B 分离)
-# ==========================================
 manage_ufw() {
     while true; do
         clear
@@ -841,7 +855,7 @@ main_menu() {
     while true; do
         clear
         echo -e "\033[1;35m=========================================================\033[0m"
-        echo -e "\033[1;36m               VPS 综合环境配置管理工具 3.0                \033[0m"
+        echo -e "\033[1;36m               VPS 综合环境配置管理工具 2.7                \033[0m"
         echo -e "\033[1;35m=========================================================\033[0m"
         echo -e " \033[1;34m系统环境:\033[0m \033[1;37m${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})\033[0m"
         echo -e " \033[1;34m当前内核:\033[0m \033[1;37m${KERNEL_VER}\033[0m"
@@ -850,14 +864,14 @@ main_menu() {
         echo -e " \033[1;34m公网 IPv6:\033[0m \033[1;32m${PUBLIC_IPV6}\033[0m"
         echo -e "\033[1;35m---------------------------------------------------------\033[0m"
         echo "  1. 设置主机名 （Hostname / Swap）"
-        echo "  2. 安装与锁定自适应云内核"
+        echo "  2. 安装与强制锁定云内核 (底层抢占防重置)"
         echo "  3. 网络与硬件综合测试 (脚本合集)"
         echo "  4. 部署 E-Shoes 代理节点"
         echo "  5. 部署 Docker 与 Docker Compose 容器引擎"
         echo "  6. IPv6 禁用与恢复管理"
         echo "  7. 实用工具箱 (DDNS, SpeedTest, Trace 等)"
         echo "  8. 部署 EasyCaddy 反向代理"
-        echo "  9. 服务器安全防护 (UFW / Fail2Ban / SSH)"
+        echo "  9. 服务器安全防护 (独立 UFW / Fail2Ban / SSH)"
         echo " 10. 重启服务器 (Reboot)"
         echo "  0. 退出脚本"
         echo -e "\033[1;35m=========================================================\033[0m"
