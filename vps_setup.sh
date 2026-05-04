@@ -228,20 +228,20 @@ force_boot_latest_installed() {
 manage_kernel() {
     while true; do
         clear
-        echo -e "${CYAN}======== 系统内核自适应与强制锁定管理 ========${RESET}"
+        echo -e "${CYAN}=========== [5] 系统内核自适应与强制锁定管理 ===========${RESET}"
         
         if [ "$OS_ID" == "debian" ]; then
-            echo "1. 安装 绝对稳定版 云内核 (精确抓取 Release 源，杜绝 Backports 抢占)"
-            echo "2. 安装 最新版 云内核 (${OS_CODENAME}-backports)"
+            echo "1. 安装 绝对稳定版云内核 (抓取 Release 源)"
+            echo "2. 安装 最新版云内核 (${OS_CODENAME}-backports)"
         elif [ "$OS_ID" == "ubuntu" ]; then
-            echo "1. 安装 稳定版 虚拟化内核 (linux-virtual)"
-            echo "2. 安装 最新版 官方 HWE 内核"
+            echo "1. 安装 稳定版虚拟化内核 (linux-virtual)"
+            echo "2. 安装 最新版官方 HWE 内核"
         fi
         
         echo "3. 查看当前系统已安装的所有内核包"
         echo "4. 深度清理未使用内核 (卸载非运行中内核)"
         echo "0. 返回主菜单"
-        echo -e "${MAGENTA}----------------------------------------------${RESET}"
+        echo -e "${MAGENTA}----------------------------------------------------------${RESET}"
         read -p "请选择 [0-4]: " kernel_choice
 
         case "$kernel_choice" in
@@ -309,9 +309,9 @@ check_kernel_cleanup() {
     fi
 }
 
-# ==========================================
+# ==============================================
 # 模块 3：网络与节点服务 (Shoes / Docker / Caddy)
-# ==========================================
+# ==============================================
 run_eshoes() {
     clear
     echo -e "${CYAN}========= 启动 E-Shoes 代理节点搭建 =========${RESET}"
@@ -749,7 +749,7 @@ main_menu() {
     while true; do
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}           VPS 综合环境配置管理工具 v4.4 (修复重构版)      ${RESET}"
+        echo -e "${CYAN}           VPS 综合环境配置管理工具 v4.4                      ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境:${RESET} ${WHITE}${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})${RESET}"
         echo -e " ${BLUE}当前内核:${RESET} ${WHITE}${KERNEL_VER}${RESET}"
