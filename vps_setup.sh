@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理脚本 (v4.1 修复优化版)
+# VPS 综合初始化与管理脚本 (v4.2 修复优化版)
 # ========================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -247,7 +247,6 @@ manage_kernel() {
                 echo -e "${YELLOW}--> 正在处理稳定版内核强行锁定安装请求...${RESET}"
                 apt update -y
                 if [ "$OS_ID" == "debian" ]; then
-                    # 精准拦截逻辑修复：排除 backports，抓取所有常规源(含 security/updates)的最高版本
                     EXACT_STABLE_VER=$(apt-cache madison linux-image-cloud-amd64 | grep -v "backports" | head -n 1 | awk '{print $3}')
                     if [[ -n "$EXACT_STABLE_VER" ]]; then
                         echo -e "${GREEN}成功抓取到纯净稳定版(含安全更新)包版本号: ${EXACT_STABLE_VER}${RESET}"
@@ -476,7 +475,7 @@ apply_ssh_anti_lockout() {
 manage_ufw() {
     while true; do
         clear
-        ufw_status=$(ufw status 2>/dev/null | grep -qw "active" && echo -e "${GREEN}运行中${RESET}" || echo -e "${RED}未启用${RESET}")
+        if command -v ufw >/dev/null 2>&1 && ufw status | grep -qw "active"; then ufw_status="${GREEN}运行中${RESET}"; else ufw_status="${RED}未安装/未启用${RESET}"; fi
         echo -e "${CYAN}============= UFW 防火墙管理 =============${RESET}"
         echo -e " ${BLUE}状态:${RESET} $ufw_status"
         echo -e "${MAGENTA}------------------------------------------${RESET}"
@@ -511,7 +510,7 @@ manage_ufw() {
 manage_fail2ban() {
     while true; do
         clear
-        f2b_status=$(systemctl is-active fail2ban 2>/dev/null | grep -qw "active" && echo -e "${GREEN}运行中${RESET}" || echo -e "${RED}未启用${RESET}")
+        if systemctl is-active fail2ban >/dev/null 2>&1; then f2b_status="${GREEN}运行中${RESET}"; else f2b_status="${RED}未安装/未启用${RESET}"; fi
         echo -e "${CYAN}============= Fail2Ban 防爆破 =============${RESET}"
         echo -e " ${BLUE}状态:${RESET} $f2b_status"
         echo -e "${MAGENTA}-------------------------------------------${RESET}"
@@ -572,8 +571,10 @@ manage_ssh() {
             1)
                 read -p "新端口 (1024-65535): " new_port
                 if [[ "$new_port" =~ ^[0-9]+$ && "$new_port" -ge 1024 && "$new_port" -le 65535 ]]; then
-                    ufw allow ${CURRENT_SSH_PORT}/tcp >/dev/null 2>&1
-                    ufw allow ${new_port}/tcp >/dev/null 2>&1
+                    if command -v ufw >/dev/null 2>&1; then
+                        ufw allow ${CURRENT_SSH_PORT}/tcp >/dev/null 2>&1
+                        ufw allow ${new_port}/tcp >/dev/null 2>&1
+                    fi
                     apply_ssh_anti_lockout $new_port
                     grep -q "^#*Port" /etc/ssh/sshd_config || echo "Port $CURRENT_SSH_PORT" >> /etc/ssh/sshd_config
                     sed -i "s/^#*Port .*/Port $new_port/" /etc/ssh/sshd_config
@@ -621,7 +622,7 @@ menu_security() {
 }
 
 # ==========================================
-# 模块 5：实用工具箱 (DDNS/测速/Trace 等)
+# 模块 5：实用工具箱 (DDNS/测速/Trace)
 # ==========================================
 run_network_tests() {
     while true; do
@@ -671,15 +672,29 @@ manage_tools() {
                     read -p "端口 (默认 5201): " iperf_port
                     [[ -z "$iperf_port" ]] && iperf_port=5201
                     pkill iperf3; iperf3 -s -p $iperf_port -D
-                    if ufw status | grep -qw "active"; then ufw allow ${iperf_port}/tcp >/dev/null 2>&1; ufw allow ${iperf_port}/udp >/dev/null 2>&1; fi
+                    if command -v ufw >/dev/null 2>&1 && ufw status | grep -qw "active"; then 
+                        ufw allow ${iperf_port}/tcp >/dev/null 2>&1
+                        ufw allow ${iperf_port}/udp >/dev/null 2>&1
+                    fi
                     echo -e "${GREEN}启动成功，端口 $iperf_port${RESET}"
                 elif [ "$ip_ch" == "2" ]; then pkill iperf3; apt purge -y iperf3; echo -e "${GREEN}已卸载${RESET}"; fi
                 sleep 2 ;;
             2)
-                if ! command -v docker &> /dev/null; then curl -fsSL https://get.docker.com | bash -s docker; systemctl enable --now docker; fi
-                docker run -idt --name SpeedTest -p 2333:80 langren1353/speedtest
-                if ufw status | grep -qw "active"; then ufw allow 2333/tcp >/dev/null 2>&1; fi
-                echo -e "${GREEN}部署成功！面板: http://${PUBLIC_IPV4}:2333${RESET}"; sleep 3 ;;
+                read -p "1.部署 2.卸载 : " dk_ch
+                if [ "$dk_ch" == "1" ]; then
+                    if ! command -v docker &> /dev/null; then curl -fsSL https://get.docker.com | bash -s docker; systemctl enable --now docker; fi
+                    if docker ps -a --format '{{.Names}}' | grep -Eq "^SpeedTest\$"; then
+                        echo -e "${YELLOW}检测到已存在旧的 SpeedTest 容器，正在清理...${RESET}"
+                        docker rm -f SpeedTest >/dev/null 2>&1
+                    fi
+                    docker run -idt --name SpeedTest -p 2333:80 langren1353/speedtest
+                    if command -v ufw >/dev/null 2>&1 && ufw status | grep -qw "active"; then ufw allow 2333/tcp >/dev/null 2>&1; fi
+                    echo -e "${GREEN}部署成功！面板: http://${PUBLIC_IPV4}:2333${RESET}"
+                elif [ "$dk_ch" == "2" ]; then
+                    docker rm -f SpeedTest >/dev/null 2>&1
+                    echo -e "${GREEN}SpeedTest 容器已卸载。${RESET}"
+                fi
+                sleep 3 ;;
             3)
                 read -p "1.安装 2.卸载 : " sp_ch
                 if [ "$sp_ch" == "1" ]; then apt update -y && apt install -y speedtest-cli; echo -e "${GREEN}安装完成${RESET}";
@@ -716,7 +731,7 @@ main_menu() {
     while true; do
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}           VPS 综合环境配置管理工具 v4.1 (修复重构版)      ${RESET}"
+        echo -e "${CYAN}           VPS 综合环境配置管理工具 v4.2 (修复版)          ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境:${RESET} ${WHITE}${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})${RESET}"
         echo -e " ${BLUE}当前内核:${RESET} ${WHITE}${KERNEL_VER}${RESET}"
