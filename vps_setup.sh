@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理脚本 (v4.2 修复优化版)
+# VPS 综合初始化与管理脚本 (v4.3 DDNS 修复版)
 # ========================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -622,7 +622,7 @@ menu_security() {
 }
 
 # ==========================================
-# 模块 5：实用工具箱 (DDNS/测速/Trace)
+# 模块 5：实用工具箱 (DDNS/测速/Trace 等)
 # ==========================================
 run_network_tests() {
     while true; do
@@ -705,8 +705,13 @@ manage_tools() {
                 wget -N --no-check-certificate https://raw.githubusercontent.com/yulewang/cloudflare-api-v4-ddns/master/cf-v4-ddns.sh -O /root/cf-v4-ddns.sh
                 read -p "API Key: " cf_key; read -p "根域名(example.com): " cf_zone; read -p "CF邮箱: " cf_user; read -p "完整子域名(ddns.example.com): " cf_host
                 if [[ -n "$cf_key" && -n "$cf_host" ]]; then
-                    sed -i "s/^CFKEY=.*/CFKEY=$cf_key/"; sed -i "s/^CFZONE=.*/CFZONE=$cf_zone/"; sed -i "s/^CFUSER=.*/CFUSER=$cf_user/"; sed -i "s/^CFHOST=.*/CFHOST=$cf_host/" /root/cf-v4-ddns.sh
-                    chmod +x /root/cf-v4-ddns.sh; /root/cf-v4-ddns.sh
+                    sed -i "s/^CFKEY=.*/CFKEY=\"$cf_key\"/" /root/cf-v4-ddns.sh
+                    sed -i "s/^CFZONE=.*/CFZONE=\"$cf_zone\"/" /root/cf-v4-ddns.sh
+                    sed -i "s/^CFUSER=.*/CFUSER=\"$cf_user\"/" /root/cf-v4-ddns.sh
+                    sed -i "s/^CFHOST=.*/CFHOST=\"$cf_host\"/" /root/cf-v4-ddns.sh
+                    chmod +x /root/cf-v4-ddns.sh
+                    echo -e "${YELLOW}正在执行首次解析...${RESET}"
+                    /root/cf-v4-ddns.sh
                     (crontab -l 2>/dev/null | grep -v "cf-v4-ddns.sh"; echo "*/2 * * * * /root/cf-v4-ddns.sh >/dev/null 2>&1") | crontab -
                     echo -e "${GREEN}DDNS 部署完成！${RESET}"
                 fi; sleep 2 ;;
@@ -731,7 +736,7 @@ main_menu() {
     while true; do
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}           VPS 综合环境配置管理工具 v4.2 (修复版)          ${RESET}"
+        echo -e "${CYAN}           VPS 综合环境配置管理工具 v4.3 (修复重构版)      ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境:${RESET} ${WHITE}${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})${RESET}"
         echo -e " ${BLUE}当前内核:${RESET} ${WHITE}${KERNEL_VER}${RESET}"
