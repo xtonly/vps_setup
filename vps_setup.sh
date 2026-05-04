@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理脚本 (v4.4 最终交互优化版)
+# VPS 综合初始化与管理脚本 (4.0 最终交互优化版)
 # ========================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -749,7 +749,7 @@ main_menu() {
     while true; do
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}           VPS 综合环境配置管理工具 v4.4                      ${RESET}"
+        echo -e "${CYAN}           VPS 综合环境配置管理工具 v4.0                      ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境:${RESET} ${WHITE}${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})${RESET}"
         echo -e " ${BLUE}当前内核:${RESET} ${WHITE}${KERNEL_VER}${RESET}"
