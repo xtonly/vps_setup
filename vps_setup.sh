@@ -356,14 +356,14 @@ manage_caddy() {
         if [ "$caddy_status" == "active" ]; then echo -e " ${BLUE}核心组件:${RESET} ${GREEN}已安装且运行中${RESET}"
         elif check_caddy_installed; then echo -e " ${BLUE}核心组件:${RESET} ${YELLOW}已安装，但服务未运行${RESET}"
         else echo -e " ${BLUE}核心组件:${RESET} ${RED}未安装${RESET}"; fi
-        echo -e "${MAGENTA}----------------------------------------------------${RESET}"
+        echo -e "${MAGENTA}------------------------------------------------------${RESET}"
         echo "  1. 一键安装 Caddy"
         echo "  2. 配置并启用反向代理 (域名 -> 端口)"
         echo "  3. 查看代理列表与状态"
         echo "  4. 删除指定的反向代理配置"
         echo "  5. 彻底卸载 Caddy"
         echo "  0. 返回上一级"
-        echo -e "${MAGENTA}====================================================${RESET}"
+        echo -e "${MAGENTA}======================================================${RESET}"
         read -p "  请选择操作 [0-5]: " caddy_choice
 
         case "$caddy_choice" in
