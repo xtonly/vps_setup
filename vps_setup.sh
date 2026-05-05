@@ -721,7 +721,7 @@ run_network_tests() {
         echo "  4. 流媒体解锁测试 (经典版)"
         echo "  5. 硬盘测速与性能测试 (Aniverse)"
         echo "  0. 返回上一级"
-        echo -e "${MAGENTA}===========================================${RESET}"
+        echo -e "${MAGENTA}============================================${RESET}"
         read -p "请选择测试项 [0-5]: " test_choice
 
         case "$test_choice" in
