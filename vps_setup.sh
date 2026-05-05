@@ -806,18 +806,69 @@ manage_tools() {
 
         case "$tool_choice" in
             1)
-                read -p "1.安装(自选端口) 2.卸载 : " ip_ch
+                clear
+                echo -e "${CYAN}========= iperf3 网络测速服务端 =========${RESET}"
+                echo "1. 开启测速模式 (临时开放端口)"
+                echo "2. 彻底卸载 iperf3"
+                echo "0. 返回上一级"
+                echo -e "${MAGENTA}-----------------------------------------${RESET}"
+                read -p "请选择: " ip_ch
+
                 if [ "$ip_ch" == "1" ]; then
-                    apt update -y && apt install -y iperf3
-                    read -p "端口 (默认 5201): " iperf_port
+                    # 安装依赖
+                    if ! command -v iperf3 &> /dev/null; then
+                        echo -e "${YELLOW}正在安装 iperf3...${RESET}"
+                        apt update -y && apt install -y iperf3
+                    fi
+
+                    read -p "请输入开放端口 (默认 5201): " iperf_port
                     [[ -z "$iperf_port" ]] && iperf_port=5201
-                    pkill iperf3; iperf3 -s -p $iperf_port -D
+
+                    # 清理可能存在的残留进程
+                    pkill iperf3 >/dev/null 2>&1
+                    
+                    # 临时开放防火墙 (如果 UFW 在运行)
                     if command -v ufw >/dev/null 2>&1 && ufw status | grep -qw "active"; then 
                         ufw allow ${iperf_port}/tcp >/dev/null 2>&1
                         ufw allow ${iperf_port}/udp >/dev/null 2>&1
                     fi
-                    echo -e "${GREEN}启动成功，端口 $iperf_port${RESET}"
-                elif [ "$ip_ch" == "2" ]; then pkill iperf3; apt purge -y iperf3; echo -e "${GREEN}已卸载${RESET}"; fi
+
+                    clear
+                    echo -e "${GREEN}iperf3 服务端已启动！${RESET}"
+                    echo -e "${CYAN}------------------------------------------------${RESET}"
+                    echo -e "测速端口: ${YELLOW}$iperf_port${RESET}"
+                    echo -e "您的公网 IP: ${YELLOW}$PUBLIC_IPV4${RESET}"
+                    echo -e "客户端指令: ${WHITE}iperf3 -c $PUBLIC_IPV4 -p $iperf_port${RESET}"
+                    echo -e "${CYAN}------------------------------------------------${RESET}"
+                    echo -e "${MAGENTA}窗口说明：下方为实时日志，按 Ctrl+C 可停止。${RESET}"
+                    
+                    # 在后台运行并获取 PID，但不使用 -D 模式，以便捕捉退出
+                    iperf3 -s -p $iperf_port & 
+                    IPERF_PID=$!
+
+                    echo -e "${RED}>>> 测速中... 输入 [q] 或 [0] 停止测试并关闭端口 <<<${RESET}"
+                    while true; do
+                        read -n 1 -r input
+                        if [[ "$input" == "q" || "$input" == "0" ]]; then
+                            echo -e "\n${YELLOW}正在停止服务并关闭端口...${RESET}"
+                            kill $IPERF_PID >/dev/null 2>&1
+                            pkill iperf3 >/dev/null 2>&1
+                            # 自动收回防火墙端口
+                            if command -v ufw >/dev/null 2>&1 && ufw status | grep -qw "active"; then 
+                                ufw delete allow ${iperf_port}/tcp >/dev/null 2>&1
+                                ufw delete allow ${iperf_port}/udp >/dev/null 2>&1
+                            fi
+                            echo -e "${GREEN}端口已关闭，已回到安全状态。${RESET}"
+                            break
+                        fi
+                    done
+
+                elif [ "$ip_ch" == "2" ]; then
+                    pkill iperf3 >/dev/null 2>&1
+                    # 尝试彻底卸载
+                    sudo apt-get -y purge iperf3 && sudo apt-get -y autoremove
+                    echo -e "${GREEN}iperf3 已彻底卸载。${RESET}"
+                fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             2)
                 read -p "1.部署 2.卸载 : " dk_ch
