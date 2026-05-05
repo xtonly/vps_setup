@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (4.9 看板增强版)
+# VPS 综合初始化与管理工具 (5.0 终极版)
 # 包含 BBR 状态实时探测与极致排版
 # ========================================================
 
@@ -510,14 +510,12 @@ menu_services() {
         echo -e "${CYAN}================ [2] 网络与节点服务 ================${RESET}"
         echo "  1. 部署 E-Shoes 代理节点 (SS2022/Reality/Anytls)"
         echo "  2. 部署 EasyCaddy 反向代理系统"
-        echo "  3. 部署 Docker 容器引擎"
         echo "  0. 返回主菜单"
         echo -e "${MAGENTA}==================================================${RESET}"
         read -p "请选择: " choice
         case "$choice" in
             1) run_eshoes ;;
             2) manage_caddy ;;
-            3) install_docker ;;
             0) return ;;
             *) echo -e "${RED}无效选择${RESET}" && sleep 1 ;;
         esac
@@ -748,7 +746,7 @@ manage_tools() {
         echo "  4. 动态域名: Cloudflare DDNS 配置"
         echo "  5. 路由追踪: nexttrace"
         echo "  6. 路由监测: mtr"
-        echo "  7. 综合测试: 流媒体解锁与回程全套脚本"
+        echo "  7. 部署 Docker 容器引擎"
         echo "  0. 返回主菜单"
         echo -e "${MAGENTA}==========================================${RESET}"
         read -p "请选择操作 [0-7]: " tool_choice
@@ -815,7 +813,7 @@ manage_tools() {
                 if [ "$mtr_ch" == "1" ]; then apt update -y && apt install -y mtr; echo -e "${GREEN}安装完成${RESET}";
                 elif [ "$mtr_ch" == "2" ]; then apt purge -y mtr; echo -e "${GREEN}已卸载${RESET}"; fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
-            7) run_network_tests ;;
+            7) install_docker ;;
             0) return ;;
         esac
     done
@@ -839,7 +837,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 4.9                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
@@ -854,10 +852,11 @@ main_menu() {
         echo -e " ${BLUE}地理位置 :${RESET} ${WHITE}${IP_LOC}${RESET}"
         echo -e "${MAGENTA}---------------------------------------------------------${RESET}"
         echo -e "  ${YELLOW}1.${RESET} 系统基础设置 (主机名 / Swap / IPv6)"
-        echo -e "  ${YELLOW}2.${RESET} 网络与节点服务 (Shoes / Caddy / Docker)"
-        echo -e "  ${YELLOW}3.${RESET} 实用网络工具箱 (测速 / 路由 / DDNS)"
+        echo -e "  ${YELLOW}2.${RESET} 节点创建与反代 (Shoes / Caddy)"
+        echo -e "  ${YELLOW}3.${RESET} 实用工具箱 (Docker / 测速 / DDNS)"
         echo -e "  ${YELLOW}4.${RESET} 综合安全防御配置 (UFW / F2B / SSH)"
-        echo -e "  ${YELLOW}5.${RESET} 安装与锁定底层内核 (强防篡改)"
+        echo -e "  ${YELLOW}5.${RESET} 内核安装与清理 (强防篡改)"
+        echo -e "  ${YELLOW}6.${RESET} 综合测试脚本合集 (NQ / 解锁 / SSD / IP质量)"
         echo -e "  ${RED}9.${RESET} 重启服务器 (Reboot)"
         echo -e "  ${WHITE}0.${RESET} 退出脚本"
         echo -e "${MAGENTA}=========================================================${RESET}"
@@ -869,6 +868,7 @@ main_menu() {
             3) manage_tools ;;
             4) menu_security ;;
             5) manage_kernel ;;
+            6) run_network_tests ;;
             9) echo -e "${RED}正在重启...${RESET}"; reboot ;;
             0) exit 0 ;;
             *) sleep 1 ;;
