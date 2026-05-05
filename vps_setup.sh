@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.0 终极版)
+# VPS 综合初始化与管理工具 (5.1 终极版)
 # 包含 BBR 状态实时探测与极致排版
 # ========================================================
 
@@ -737,7 +737,7 @@ run_network_tests() {
 }
 
 # ==========================================
-# 修改 DNS 的核心逻辑
+# 修改 DNS 的核心逻辑 (包含恢复默认选项)
 # ==========================================
 set_dns() {
     clear
@@ -747,38 +747,40 @@ set_dns() {
     echo "3. 阿里 DNS (223.5.5.5, 223.6.6.6)"
     echo "4. 腾讯 DNS (119.29.29.29, 119.28.28.28)"
     echo "5. 手动输入自定义 DNS"
+    echo -e "${YELLOW}6. 恢复默认 DNS (1.1.1.1 / 8.8.8.8 / IPv6)${RESET}"
     echo "0. 返回上一级"
     echo -e "${MAGENTA}------------------------------------${RESET}"
-    read -p "请选择 [0-5]: " dns_choice
+    read -p "请选择 [0-6]: " dns_choice
 
-    local dns1=""
-    local dns2=""
+    local dns_content=""
 
     case "$dns_choice" in
-        1) dns1="8.8.8.8"; dns2="8.8.4.4" ;;
-        2) dns1="1.1.1.1"; dns2="1.0.0.1" ;;
-        3) dns1="223.5.5.5"; dns2="223.6.6.6" ;;
-        4) dns1="119.29.29.29"; dns2="119.28.28.28" ;;
+        1) dns_content="nameserver 8.8.8.8\nnameserver 8.8.4.4" ;;
+        2) dns_content="nameserver 1.1.1.1\nnameserver 1.0.0.1" ;;
+        3) dns_content="nameserver 223.5.5.5\nnameserver 223.6.6.6" ;;
+        4) dns_content="nameserver 119.29.29.29\nnameserver 119.28.28.28" ;;
         5) 
             read -p "请输入主 DNS: " dns1
             read -p "请输入备 DNS: " dns2
+            dns_content="nameserver $dns1"
+            [[ -n "$dns2" ]] && dns_content="${dns_content}\nnameserver $dns2"
+            ;;
+        6)
+            # 恢复用户指定的默认 DNS
+            dns_content="nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 2606:4700:4700::1111\nnameserver 2001:4860:4860::8888"
             ;;
         0) return ;;
         *) echo -e "${RED}无效选择${RESET}"; sleep 1; return ;;
     esac
 
-    if [[ -n "$dns1" ]]; then
+    if [[ -n "$dns_content" ]]; then
         # 备份并重写 /etc/resolv.conf
-        # 注意：部分系统使用 systemd-resolved，这里直接修改 resolv.conf 并在某些环境下可能被覆盖
-        # 但对于大多数 VPS 初始化而言，这是最直接有效的方法
-        cp /etc/resolv.conf /etc/resolv.conf.bak
-        echo "nameserver $dns1" > /etc/resolv.conf
-        [[ -n "$dns2" ]] && echo "nameserver $dns2" >> /etc/resolv.conf
+        cp /etc/resolv.conf /etc/resolv.conf.bak 2>/dev/null
+        echo -e "$dns_content" > /etc/resolv.conf
         
-        # 尝试锁定文件防止被 DHCP 覆盖 (可选)
-        # chattr +i /etc/resolv.conf 2>/dev/null
-        
-        echo -e "${GREEN}DNS 已成功修改为: $dns1 $dns2${RESET}"
+        echo -e "${GREEN}DNS 配置已更新！${RESET}"
+        echo -e "${BLUE}当前配置：${RESET}"
+        cat /etc/resolv.conf
     fi
     echo "" && read -n 1 -s -r -p "按任意键返回..."
 }
@@ -889,7 +891,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
