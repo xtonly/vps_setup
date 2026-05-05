@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.1 终极版)
+# VPS 综合初始化与管理工具 (5.0 终极版)
 # 包含 BBR 状态实时探测与极致排版
 # ========================================================
 
@@ -737,56 +737,7 @@ run_network_tests() {
 }
 
 # ==========================================
-# 修改 DNS 的核心逻辑 (包含恢复默认选项)
-# ==========================================
-set_dns() {
-    clear
-    echo -e "${CYAN}============= DNS 地址修改工具 =============${RESET}"
-    echo "1. Google DNS (8.8.8.8, 8.8.4.4)"
-    echo "2. Cloudflare DNS (1.1.1.1, 1.0.0.1)"
-    echo "3. 阿里 DNS (223.5.5.5, 223.6.6.6)"
-    echo "4. 腾讯 DNS (119.29.29.29, 119.28.28.28)"
-    echo "5. 手动输入自定义 DNS"
-    echo "6. 恢复默认 DNS (1.1.1.1 / 8.8.8.8 / IPv6)"
-    echo "0. 返回上一级"
-    echo -e "${MAGENTA}--------------------------------------------${RESET}"
-    read -p "请选择 [0-6]: " dns_choice
-
-    local dns_content=""
-
-    case "$dns_choice" in
-        1) dns_content="nameserver 8.8.8.8\nnameserver 8.8.4.4" ;;
-        2) dns_content="nameserver 1.1.1.1\nnameserver 1.0.0.1" ;;
-        3) dns_content="nameserver 223.5.5.5\nnameserver 223.6.6.6" ;;
-        4) dns_content="nameserver 119.29.29.29\nnameserver 119.28.28.28" ;;
-        5) 
-            read -p "请输入主 DNS: " dns1
-            read -p "请输入备 DNS: " dns2
-            dns_content="nameserver $dns1"
-            [[ -n "$dns2" ]] && dns_content="${dns_content}\nnameserver $dns2"
-            ;;
-        6)
-            # 恢复用户指定的默认 DNS
-            dns_content="nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 2606:4700:4700::1111\nnameserver 2001:4860:4860::8888"
-            ;;
-        0) return ;;
-        *) echo -e "${RED}无效选择${RESET}"; sleep 1; return ;;
-    esac
-
-    if [[ -n "$dns_content" ]]; then
-        # 备份并重写 /etc/resolv.conf
-        cp /etc/resolv.conf /etc/resolv.conf.bak 2>/dev/null
-        echo -e "$dns_content" > /etc/resolv.conf
-        
-        echo -e "${GREEN}DNS 配置已更新！${RESET}"
-        echo -e "${BLUE}当前配置：${RESET}"
-        cat /etc/resolv.conf
-    fi
-    echo "" && read -n 1 -s -r -p "按任意键返回..."
-}
-
-# ==========================================
-# 修改后的实用工具箱菜单
+# 修改后的实用工具箱菜单 (增强交互与卸载逻辑)
 # ==========================================
 manage_tools() {
     while true; do
@@ -795,9 +746,9 @@ manage_tools() {
         echo "  1. 测速节点: iperf3 (自定义端口)"
         echo "  2. 简易面板: Docker SpeedTest"
         echo "  3. 网络测速: speedtest (官方 CLI)"
-        echo "  4. 动态域名: Cloudflare DDNS 配置"
-        echo "  5. 路由追踪: nexttrace"
-        echo "  6. 路由监测: mtr"
+        echo "  4. 动态域名: Cloudflare DDNS (含卸载)"
+        echo "  5. 路由追踪: nexttrace (即时测试)"
+        echo "  6. 路由监测: mtr (即时测试)"
         echo "  7. 部署 Docker 容器引擎"
         echo "  8. 修改系统 DNS 地址"
         echo "  0. 返回主菜单"
@@ -813,7 +764,6 @@ manage_tools() {
                 echo "  0. 返回上一级"
                 echo -e "${MAGENTA}-------------------------------------${RESET}"
                 read -p "请选择: " ip_ch
-
                 if [ "$ip_ch" == "1" ]; then
                     if ! command -v iperf3 &> /dev/null; then
                         echo -e "${YELLOW}--> 正在安装 iperf3...${RESET}"
@@ -821,36 +771,29 @@ manage_tools() {
                     fi
                     read -p "请输入开放端口 (默认 5201): " iperf_port
                     [[ -z "$iperf_port" ]] && iperf_port=5201
-                    
                     pkill iperf3 >/dev/null 2>&1
-                    # 临时开放防火墙端口
                     if command -v ufw >/dev/null 2>&1 && ufw status | grep -qw "active"; then 
                         ufw allow ${iperf_port}/tcp >/dev/null 2>&1
                         ufw allow ${iperf_port}/udp >/dev/null 2>&1
                     fi
-
                     clear
                     echo -e "${GREEN}iperf3 服务端已启动！${RESET}"
                     echo -e "${YELLOW}测速地址: ${WHITE}$PUBLIC_IPV4${RESET}"
-                    echo -e "${YELLOW}测速端口: ${WHITE}$iperf_port${RESET}"
                     echo -e "${YELLOW}客户端指令: ${WHITE}iperf3 -c $PUBLIC_IPV4 -p $iperf_port${RESET}"
                     echo -e "${MAGENTA}-------------------------------------${RESET}"
                     echo -e "${CYAN}测速正在运行... 输入 [q] 或 [0] 停止测试并关闭端口${RESET}"
-                    
                     iperf3 -s -p $iperf_port & 
                     IPERF_PID=$!
-
                     while true; do
                         read -n 1 -r input
                         if [[ "$input" == "q" || "$input" == "0" ]]; then
-                            echo -e "\n${YELLOW}正在停止 iperf3 并清理防火墙规则...${RESET}"
                             kill $IPERF_PID >/dev/null 2>&1
                             pkill iperf3 >/dev/null 2>&1
                             if command -v ufw >/dev/null 2>&1 && ufw status | grep -qw "active"; then 
                                 ufw delete allow ${iperf_port}/tcp >/dev/null 2>&1
                                 ufw delete allow ${iperf_port}/udp >/dev/null 2>&1
                             fi
-                            echo -e "${GREEN}端口已关闭。${RESET}"
+                            echo -e "\n${GREEN}端口已关闭。${RESET}"
                             break
                         fi
                     done
@@ -869,7 +812,6 @@ manage_tools() {
                 echo "  0. 返回上一级"
                 echo -e "${MAGENTA}-------------------------------------${RESET}"
                 read -p "请选择: " sp_ch
-
                 if [ "$sp_ch" == "1" ]; then
                     if ! command -v speedtest &> /dev/null; then
                         echo -e "${YELLOW}--> 正在安装 Ookla 官方源...${RESET}"
@@ -877,63 +819,117 @@ manage_tools() {
                         apt install speedtest -y
                     fi
                     clear
-                    echo -e "${GREEN}正在执行测速，请稍候...${RESET}"
+                    echo -e "${GREEN}正在执行测速...${RESET}"
                     speedtest
-                    echo -e "\n${MAGENTA}-------------------------------------${RESET}"
-                    read -p "测试完成。是否立即卸载测速工具? (y/n): " temp_un
+                    read -p "测试完成。是否立即卸载工具? (y/n): " temp_un
                     if [[ "$temp_un" =~ ^[Yy]$ ]]; then
                         apt-get purge -y speedtest && apt-get -y autoremove
-                        echo -e "${GREEN}测速工具已临时清理。${RESET}"
+                        echo -e "${GREEN}测速工具已移除。${RESET}"
                     fi
                 elif [ "$sp_ch" == "2" ]; then
-                    apt-get purge -y speedtest speedtest-cli >/dev/null 2>&1
+                    apt-get purge -y speedtest speedtest-cli >/dev/null 2>&1[cite: 1]
                     rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
-                    apt-get -y autoremove
-                    echo -e "${GREEN}已彻底卸载 Speedtest。${RESET}"
+                    apt-get -y autoremove[cite: 1]
+                    echo -e "${GREEN}已彻底卸载。${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
-            # 选项 2, 4, 5, 6, 7, 8 保持原脚本逻辑即可
+
+            4)
+                clear
+                echo -e "${CYAN}========= Cloudflare DDNS 管理 =========${RESET}"
+                echo "  1. 部署/更新 DDNS 任务"
+                echo "  2. 彻底卸载 DDNS 任务"
+                echo "  0. 返回上一级"
+                echo -e "${MAGENTA}----------------------------------------${RESET}"
+                read -p "请选择: " ddns_ch
+                if [ "$ddns_ch" == "1" ]; then
+                    apt update -y && apt install -y curl wget socat cron
+                    wget -N --no-check-certificate https://raw.githubusercontent.com/yulewang/cloudflare-api-v4-ddns/master/cf-v4-ddns.sh -O /root/cf-v4-ddns.sh
+                    read -p "API Key: " cf_key; read -p "根域名(example.com): " cf_zone; read -p "CF邮箱: " cf_user; read -p "完整子域名(ddns.example.com): " cf_host
+                    if [[ -n "$cf_key" && -n "$cf_host" ]]; then
+                        sed -i "s/^CFKEY=.*/CFKEY=\"$cf_key\"/" /root/cf-v4-ddns.sh
+                        sed -i "s/^CFZONE_NAME=.*/CFZONE_NAME=\"$cf_zone\"/" /root/cf-v4-ddns.sh
+                        sed -i "s/^CFUSER=.*/CFUSER=\"$cf_user\"/" /root/cf-v4-ddns.sh
+                        sed -i "s/^CFRECORD_NAME=.*/CFRECORD_NAME=\"$cf_host\"/" /root/cf-v4-ddns.sh
+                        chmod +x /root/cf-v4-ddns.sh
+                        echo -e "${YELLOW}正在执行首次解析...${RESET}"
+                        /root/cf-v4-ddns.sh
+                        (crontab -l 2>/dev/null | grep -v "cf-v4-ddns.sh"; echo "*/2 * * * * /root/cf-v4-ddns.sh >/dev/null 2>&1") | crontab -
+                        echo -e "${GREEN}DDNS 部署完成 (每2分钟同步一次)。${RESET}"
+                    fi
+                elif [ "$ddns_ch" == "2" ]; then
+                    crontab -l 2>/dev/null | grep -v "cf-v4-ddns.sh" | crontab -
+                    rm -f /root/cf-v4-ddns.sh
+                    echo -e "${GREEN}DDNS 定时任务与脚本已清理。${RESET}"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+
+            5)
+                clear
+                echo -e "${CYAN}========= NextTrace 路由追踪 =========${RESET}"
+                echo "  1. 运行测试 (测试完可选卸载)"
+                echo "  2. 彻底卸载 NextTrace"
+                echo "  0. 返回上一级"
+                echo -e "${MAGENTA}--------------------------------------${RESET}"
+                read -p "请选择: " nt_ch
+                if [ "$nt_ch" == "1" ]; then
+                    if ! command -v nexttrace &> /dev/null; then
+                        echo -e "${YELLOW}--> 正在安装 NextTrace...${RESET}"
+                        curl nxtrace.org/nt | bash
+                    fi
+                    read -p "请输入测试目标 (IP/域名, 默认 8.8.8.8): " nt_target
+                    [[ -z "$nt_target" ]] && nt_target="8.8.8.8"
+                    nexttrace $nt_target
+                    read -p "测试完成。是否立即卸载 NextTrace? (y/n): " temp_un
+                    if [[ "$temp_un" =~ ^[Yy]$ ]]; then
+                        rm -f /usr/local/bin/nexttrace
+                        echo -e "${GREEN}NextTrace 已移除。${RESET}"
+                    fi
+                elif [ "$nt_ch" == "2" ]; then
+                    rm -f /usr/local/bin/nexttrace
+                    echo -e "${GREEN}已卸载。${RESET}"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+
+            6)
+                clear
+                echo -e "${CYAN}========= MTR 路由监控 =========${RESET}"
+                echo "  1. 运行测试 (测试完可选卸载)"
+                echo "  2. 彻底卸载 MTR"
+                echo "  0. 返回上一级"
+                echo -e "${MAGENTA}----------------------------------${RESET}"
+                read -p "请选择: " mtr_ch
+                if [ "$mtr_ch" == "1" ]; then
+                    if ! command -v mtr &> /dev/null; then
+                        echo -e "${YELLOW}--> 正在安装 MTR...${RESET}"
+                        apt update -y && apt install -y mtr
+                    fi
+                    read -p "请输入测试目标 (IP/域名, 默认 8.8.8.8): " mtr_target
+                    [[ -z "$mtr_target" ]] && mtr_target="8.8.8.8"
+                    mtr -r $mtr_target
+                    read -p "测试完成。是否立即卸载 MTR? (y/n): " temp_un
+                    if [[ "$temp_un" =~ ^[Yy]$ ]]; then
+                        apt purge -y mtr && apt -y autoremove[cite: 1]
+                        echo -e "${GREEN}MTR 已移除。${RESET}"
+                    fi
+                elif [ "$mtr_ch" == "2" ]; then
+                    apt purge -y mtr && apt -y autoremove[cite: 1]
+                    echo -e "${GREEN}已卸载。${RESET}"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+
             2)
                 read -p "1.部署 2.卸载 : " dk_ch
                 if [ "$dk_ch" == "1" ]; then
                     if ! command -v docker &> /dev/null; then curl -fsSL https://get.docker.com | bash -s docker; systemctl enable --now docker; fi
-                    if docker ps -a --format '{{.Names}}' | grep -Eq "^SpeedTest\$"; then
-                        echo -e "${YELLOW}检测到已存在旧的 SpeedTest 容器，正在清理...${RESET}"
-                        docker rm -f SpeedTest >/dev/null 2>&1
-                    fi
+                    docker rm -f SpeedTest >/dev/null 2>&1
                     docker run -idt --name SpeedTest -p 2333:80 langren1353/speedtest
                     if command -v ufw >/dev/null 2>&1 && ufw status | grep -qw "active"; then ufw allow 2333/tcp >/dev/null 2>&1; fi
                     echo -e "${GREEN}部署成功！面板: http://${PUBLIC_IPV4}:2333${RESET}"
                 elif [ "$dk_ch" == "2" ]; then
                     docker rm -f SpeedTest >/dev/null 2>&1
-                    echo -e "${GREEN}SpeedTest 容器已卸载。${RESET}"
+                    echo -e "${GREEN}已卸载。${RESET}"
                 fi
-                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
-            4)
-                apt update -y && apt install -y curl wget socat cron
-                wget -N --no-check-certificate https://raw.githubusercontent.com/yulewang/cloudflare-api-v4-ddns/master/cf-v4-ddns.sh -O /root/cf-v4-ddns.sh
-                read -p "API Key: " cf_key; read -p "根域名(example.com): " cf_zone; read -p "CF邮箱: " cf_user; read -p "完整子域名(ddns.example.com): " cf_host
-                if [[ -n "$cf_key" && -n "$cf_host" ]]; then
-                    sed -i "s/^CFKEY=.*/CFKEY=\"$cf_key\"/" /root/cf-v4-ddns.sh
-                    sed -i "s/^CFZONE_NAME=.*/CFZONE_NAME=\"$cf_zone\"/" /root/cf-v4-ddns.sh
-                    sed -i "s/^CFUSER=.*/CFUSER=\"$cf_user\"/" /root/cf-v4-ddns.sh
-                    sed -i "s/^CFRECORD_NAME=.*/CFRECORD_NAME=\"$cf_host\"/" /root/cf-v4-ddns.sh
-                    chmod +x /root/cf-v4-ddns.sh
-                    echo -e "${YELLOW}正在执行首次解析...${RESET}"
-                    /root/cf-v4-ddns.sh
-                    (crontab -l 2>/dev/null | grep -v "cf-v4-ddns.sh"; echo "*/2 * * * * /root/cf-v4-ddns.sh >/dev/null 2>&1") | crontab -
-                    echo -e "${GREEN}DDNS 部署完成！${RESET}"
-                fi
-                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
-            5)
-                read -p "1.安装 2.卸载 : " nt_ch
-                if [ "$nt_ch" == "1" ]; then curl nxtrace.org/nt | bash; echo -e "${GREEN}安装完成${RESET}";
-                elif [ "$nt_ch" == "2" ]; then rm -f /usr/local/bin/nexttrace; echo -e "${GREEN}已卸载${RESET}"; fi
-                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
-            6)
-                read -p "1.安装 2.卸载 : " mtr_ch
-                if [ "$mtr_ch" == "1" ]; then apt update -y && apt install -y mtr; echo -e "${GREEN}安装完成${RESET}";
-                elif [ "$mtr_ch" == "2" ]; then apt purge -y mtr; echo -e "${GREEN}已卸载${RESET}"; fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             7) install_docker ;;
             8) set_dns ;;
@@ -960,7 +956,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
