@@ -71,8 +71,15 @@ KERNEL_DISPLAY="${KERNEL_VER}${KERNEL_EXTRA}"
 
 # CPU 信息提取
 CPU_CORES=$(nproc 2>/dev/null || echo "1")
-CPU_MODEL=$(awk -F: '/model name/ {name=$2} END {print name}' /proc/cpuinfo | sed 's/^[ \t]*//')
-[[ -z "$CPU_MODEL" ]] && CPU_MODEL="Unknown CPU"
+# 提取模型名称并过滤掉冗余的商标和无意义词汇
+CPU_MODEL=$(awk -F: '/model name/ {name=$2} END {print name}' /proc/cpuinfo | sed 's/^[ \t]*//' | sed -e 's/(R)//g' -e 's/(TM)//g' -e 's/ CPU//g' -e 's/ Processor//g' -e 's/ \+/ /g')
+[[ -z "$CPU_MODEL" ]] && CPU_MODEL="Unknown"
+
+# 强制截断防撑破边框 (限制型号最大显示长度为 28 个字符)
+if [ ${#CPU_MODEL} -gt 28 ]; then
+    CPU_MODEL="${CPU_MODEL:0:25}..."
+fi
+
 CPU_INFO="${CPU_CORES} Core(s) | ${CPU_MODEL}"
 
 # ASN 与地理位置智能探针
@@ -86,6 +93,11 @@ else
     IP_LOC="$(curl -s -m 3 ipinfo.io/country 2>/dev/null) / $(curl -s -m 3 ipinfo.io/city 2>/dev/null)"
     [[ -z "$IP_ASN" ]] && IP_ASN="Unknown ASN"
     [[ -z "$IP_LOC" || "$IP_LOC" == " / " ]] && IP_LOC="Unknown Location"
+fi
+
+# 强制截断超长 ASN 名称防撑破边框 (限制最大显示长度为 38 个字符)
+if [ ${#IP_ASN} -gt 38 ]; then
+    IP_ASN="${IP_ASN:0:35}..."
 fi
 
 # ==========================================
