@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.1 终极版)
+# VPS 综合初始化与管理工具 (5.0 终极版)
 # 包含 BBR 状态实时探测与极致排版
 # ========================================================
 
@@ -741,7 +741,7 @@ run_network_tests() {
 # ==========================================
 set_dns() {
     clear
-    echo -e "${CYAN}========= DNS 地址修改工具 =========${RESET}"
+    echo -e "${CYAN}============ DNS 地址修改工具 ============${RESET}"
     echo "1. Google DNS (8.8.8.8, 8.8.4.4)"
     echo "2. Cloudflare DNS (1.1.1.1, 1.0.0.1)"
     echo "3. 阿里 DNS (223.5.5.5, 223.6.6.6)"
@@ -749,7 +749,7 @@ set_dns() {
     echo "5. 手动输入自定义 DNS"
     echo "6. 恢复默认 DNS (1.1.1.1 / 8.8.8.8 / IPv6)"
     echo "0. 返回上一级"
-    echo -e "${MAGENTA}------------------------------------${RESET}"
+    echo -e "${MAGENTA}------------------------------------------${RESET}"
     read -p "请选择 [0-6]: " dns_choice
 
     local dns_content=""
@@ -891,7 +891,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
