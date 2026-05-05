@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (4.8 看板增强版)
+# VPS 综合初始化与管理工具 (4.9 看板增强版)
 # 包含 BBR 状态实时探测与极致排版
 # ========================================================
 
@@ -230,18 +230,35 @@ purge_unused_kernels() {
     CURRENT_KERNEL=$(uname -r)
     echo -e "${YELLOW}--> 正在深度扫描并清除所有未在运行的内核...${RESET}"
     echo -e "${BLUE}当前受保护的运行中内核: $CURRENT_KERNEL${RESET}"
+    
+    # 1. 清理旧内核文件
     OLD_PACKAGES=$(dpkg -l | grep -E '^ii  linux-(image|headers|modules|base|binary|tools|kbuild)-[0-9]' | awk '{print $2}' | grep -v "$CURRENT_KERNEL")
     if [ -n "$OLD_PACKAGES" ]; then
         for pkg in $OLD_PACKAGES; do
             echo -e "发现未运行的内核包，正在强制卸载: ${RED}$pkg${RESET}"
             apt-get purge -y "$pkg" > /dev/null 2>&1
         done
-        apt-get autoremove --purge -y > /dev/null 2>&1
-        update-grub 2>/dev/null
-        echo -e "${GREEN}系统保持最清洁状态！${RESET}"
     else
         echo -e "${GREEN}没有检测到需要清理的未使用内核。${RESET}"
     fi
+
+    # 2. 清理多余的编译工具链 (跨架构支持: aarch64 & x86_64)
+    echo -e "${YELLOW}--> 正在扫描并清理闲置的编译套件(gcc/g++/binutils等)...${RESET}"
+    COMPILE_PKGS=$(dpkg -l | awk '/^ii/ {print $2}' | grep -E '^(cpp|gcc|g\+\+|binutils).*linux-gnu|linux-libc-dev')
+    if [ -n "$COMPILE_PKGS" ]; then
+        for pkg in $COMPILE_PKGS; do
+            echo -e "发现多余编译组件，正在强制卸载: ${RED}$pkg${RESET}"
+            apt-get purge -y "$pkg" > /dev/null 2>&1
+        done
+    else
+        echo -e "${GREEN}没有检测到闲置的编译组件。${RESET}"
+    fi
+
+    # 3. 终极无用依赖清理与引导刷新
+    echo -e "${YELLOW}--> 正在执行全局无用依赖清理 (autoremove)...${RESET}"
+    apt-get autoremove --purge -y > /dev/null 2>&1
+    update-grub 2>/dev/null
+    echo -e "${GREEN}系统保持最清洁状态！${RESET}"
 }
 
 force_boot_latest_installed() {
@@ -810,7 +827,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}           VPS 综合环境配置管理工具 4.8                       ${RESET}"
+        echo -e "${CYAN}           VPS 综合环境配置管理工具 4.9                       ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
