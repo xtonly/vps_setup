@@ -909,7 +909,7 @@ main_menu() {
         echo -e "  ${YELLOW}2.${RESET} 节点创建与反代 (Shoes / Caddy)"
         echo -e "  ${YELLOW}3.${RESET} 实用工具箱 (Docker / 测速 / DDNS)"
         echo -e "  ${YELLOW}4.${RESET} 综合安全防御配置 (UFW / F2B / SSH)"
-        echo -e "  ${YELLOW}5.${RESET} 内核安装与清理 (强防篡改)"
+        echo -e "  ${YELLOW}5.${RESET} 内核安装与清理 (防篡改)"
         echo -e "  ${YELLOW}6.${RESET} 综合测试脚本合集 (NQ / 解锁 / SSD / IP质量)"
         echo -e "  ${RED}9.${RESET} 重启服务器 (Reboot)"
         echo -e "  ${WHITE}0.${RESET} 退出脚本"
