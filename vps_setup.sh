@@ -829,7 +829,7 @@ main_menu() {
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e "${CYAN}           VPS 综合环境配置管理工具 4.9                       ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})${RESET}"
+        echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
         echo -e " ${BLUE}CPU 信息 :${RESET} ${WHITE}${CPU_INFO}${RESET}"
         echo -e " ${BLUE}内存状态 :${RESET} ${WHITE}${RAM_INFO}${RESET}"
