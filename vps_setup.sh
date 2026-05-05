@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (4.7 看板增强版)
+# VPS 综合初始化与管理工具 (4.8 看板增强版)
 # 包含 BBR 状态实时探测与极致排版
 # ========================================================
 
@@ -266,6 +266,15 @@ force_boot_latest_installed() {
 }
 
 manage_kernel() {
+    # 动态检测系统架构，适配 ARM64 和 AMD64
+    local SYS_ARCH=$(dpkg --print-architecture)
+    if [ "$SYS_ARCH" == "arm64" ]; then
+        local K_ARCH="arm64"
+    else
+        local K_ARCH="amd64"
+    fi
+    local CLOUD_KERNEL_PKG="linux-image-cloud-${K_ARCH}"
+
     while true; do
         clear
         echo -e "${CYAN}========= [5] 系统内核自适应与强制锁定管理 =========${RESET}"
@@ -289,13 +298,14 @@ manage_kernel() {
                 echo -e "${YELLOW}--> 正在处理稳定版内核强行锁定安装请求...${RESET}"
                 apt update -y
                 if [ "$OS_ID" == "debian" ]; then
-                    EXACT_STABLE_VER=$(apt-cache madison linux-image-cloud-amd64 | grep -v "backports" | head -n 1 | awk '{print $3}')
+                    # 使用动态包名替换写死的 amd64
+                    EXACT_STABLE_VER=$(apt-cache madison ${CLOUD_KERNEL_PKG} | grep -v "backports" | head -n 1 | awk '{print $3}')
                     if [[ -n "$EXACT_STABLE_VER" ]]; then
                         echo -e "${GREEN}成功抓取到纯净稳定版(含安全更新)包版本号: ${EXACT_STABLE_VER}${RESET}"
-                        LC_ALL=C apt install -y --reinstall --allow-downgrades linux-image-cloud-amd64=${EXACT_STABLE_VER}
+                        LC_ALL=C apt install -y --reinstall --allow-downgrades ${CLOUD_KERNEL_PKG}=${EXACT_STABLE_VER}
                     else
                         echo -e "${RED}未能精确抓取版本，将尝试基础安装。${RESET}"
-                        LC_ALL=C apt install -y --reinstall linux-image-cloud-amd64
+                        LC_ALL=C apt install -y --reinstall ${CLOUD_KERNEL_PKG}
                     fi
                 else
                     LC_ALL=C apt install -y --reinstall linux-virtual
@@ -306,7 +316,8 @@ manage_kernel() {
                 echo -e "${YELLOW}--> 正在处理最新版内核安装请求...${RESET}"
                 apt update -y
                 if [ "$OS_ID" == "debian" ]; then
-                    LC_ALL=C apt install -t ${OS_CODENAME}-backports linux-image-cloud-amd64 -y
+                    # 同样在这里使用动态包名
+                    LC_ALL=C apt install -t ${OS_CODENAME}-backports ${CLOUD_KERNEL_PKG} -y
                 else
                     HWE_PKG="linux-generic-hwe-${OS_VER}"
                     if apt-cache show $HWE_PKG >/dev/null 2>&1; then
@@ -799,7 +810,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}           VPS 综合环境配置管理工具 4.7                       ${RESET}"
+        echo -e "${CYAN}           VPS 综合环境配置管理工具 4.8                       ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME} (${OS_ID^} ${OS_CODENAME})${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
