@@ -887,9 +887,49 @@ manage_tools() {
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             3)
-                read -p "1.安装 2.卸载 : " sp_ch
-                if [ "$sp_ch" == "1" ]; then apt update -y && apt install -y speedtest-cli; echo -e "${GREEN}安装完成${RESET}";
-                elif [ "$sp_ch" == "2" ]; then apt purge -y speedtest-cli; echo -e "${GREEN}已卸载${RESET}"; fi
+                clear
+                echo -e "${CYAN}========= Speedtest 官方测速工具 =========${RESET}"
+                echo "1. 运行网络测速 (立即执行)"
+                echo "2. 彻底卸载 Speedtest (含卸载软件源)"
+                echo "0. 返回上一级"
+                echo -e "${MAGENTA}------------------------------------------${RESET}"
+                read -p "请选择: " sp_ch
+
+                if [ "$sp_ch" == "1" ]; then
+                    # 安装逻辑：优先检测官方版 speedtest
+                    if ! command -v speedtest &> /dev/null; then
+                        echo -e "${YELLOW}正在配置 Ookla 官方软件源并安装...${RESET}"
+                        # 使用你提供的官方安装脚本
+                        curl -sL https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | sudo bash
+                        apt-get install speedtest -y
+                    fi
+
+                    clear
+                    echo -e "${GREEN}正在开始网络测速，请稍候...${RESET}"
+                    echo -e "${WHITE}(首次运行可能需要输入 'YES' 同意 Ookla 条款)${RESET}"
+                    # 运行测速
+                    speedtest
+                    
+                    echo -e "\n${CYAN}------------------------------------------${RESET}"
+                    read -p "测试完成。是否立即卸载测速工具以保持系统精简？(y/n): " temp_uninstall
+                    if [[ "$temp_uninstall" =~ ^[Yy]$ ]]; then
+                        echo -e "${YELLOW}正在清理...${RESET}"
+                        apt-get purge -y speedtest
+                        # 自动清理不再需要的依赖
+                        apt-get -y autoremove
+                        echo -e "${GREEN}已临时卸载。${RESET}"
+                    fi
+
+                elif [ "$sp_ch" == "2" ]; then
+                    echo -e "${YELLOW}正在彻底清理 Speedtest 及其相关配置...${RESET}"
+                    # 卸载程序[cite: 1]
+                    apt-get purge -y speedtest speedtest-cli >/dev/null 2>&1
+                    # 清理软件源文件，防止 apt update 时残留
+                    rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
+                    # 自动清理依赖[cite: 1]
+                    apt-get -y autoremove
+                    echo -e "${GREEN}Speedtest 已从系统中彻底移除。${RESET}"
+                fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             4)
                 apt update -y && apt install -y curl wget socat cron
