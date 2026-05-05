@@ -714,14 +714,14 @@ menu_security() {
 run_network_tests() {
     while true; do
         clear
-        echo -e "${CYAN}=========== 综合网络与流媒体测试 ===========${RESET}"
+        echo -e "${CYAN}=========== [6] 综合测试脚本合集 ===========${RESET}"
         echo "  1. NodeQuality 综合节点测试"
         echo "  2. IP 质量与欺诈分数查询"
         echo "  3. 流媒体解锁测试 (含 Ins 状态)"
         echo "  4. 流媒体解锁测试 (经典版)"
         echo "  5. 硬盘测速与性能测试 (Aniverse)"
         echo "  0. 返回上一级"
-        echo -e "${MAGENTA}--------------------------------------------${RESET}"
+        echo -e "${MAGENTA}====================================${RESET}"
         read -p "请选择测试项 [0-5]: " test_choice
 
         case "$test_choice" in
