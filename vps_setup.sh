@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.0 终极版)
+# VPS 综合初始化与管理工具 (5.1 终极版)
 # 包含 BBR 状态实时探测与极致排版
 # ========================================================
 
@@ -794,7 +794,7 @@ manage_tools() {
         echo -e "${CYAN}============= [3] 实用工具箱 =============${RESET}"
         echo "  1. 测速节点: iperf3 (自定义端口)"
         echo "  2. 简易面板: Docker SpeedTest"
-        echo "  3. 网络测速: speedtest-cli"
+        echo "  3. 网络测速: speedtest (官方 CLI)"
         echo "  4. 动态域名: Cloudflare DDNS 配置"
         echo "  5. 路由追踪: nexttrace"
         echo "  6. 路由监测: mtr"
@@ -807,27 +807,23 @@ manage_tools() {
         case "$tool_choice" in
             1)
                 clear
-                echo -e "${CYAN}========= iperf3 网络测速服务端 =========${RESET}"
-                echo "1. 开启测速模式 (临时开放端口)"
-                echo "2. 彻底卸载 iperf3"
-                echo "0. 返回上一级"
-                echo -e "${MAGENTA}-----------------------------------------${RESET}"
+                echo -e "${CYAN}========= iperf3 测速服务端 =========${RESET}"
+                echo "  1. 开启测速模式 (测试完自动关闭)"
+                echo "  2. 彻底卸载 iperf3"
+                echo "  0. 返回上一级"
+                echo -e "${MAGENTA}-------------------------------------${RESET}"
                 read -p "请选择: " ip_ch
 
                 if [ "$ip_ch" == "1" ]; then
-                    # 安装依赖
                     if ! command -v iperf3 &> /dev/null; then
-                        echo -e "${YELLOW}正在安装 iperf3...${RESET}"
+                        echo -e "${YELLOW}--> 正在安装 iperf3...${RESET}"
                         apt update -y && apt install -y iperf3
                     fi
-
                     read -p "请输入开放端口 (默认 5201): " iperf_port
                     [[ -z "$iperf_port" ]] && iperf_port=5201
-
-                    # 清理可能存在的残留进程
-                    pkill iperf3 >/dev/null 2>&1
                     
-                    # 临时开放防火墙 (如果 UFW 在运行)
+                    pkill iperf3 >/dev/null 2>&1
+                    # 临时开放防火墙端口
                     if command -v ufw >/dev/null 2>&1 && ufw status | grep -qw "active"; then 
                         ufw allow ${iperf_port}/tcp >/dev/null 2>&1
                         ufw allow ${iperf_port}/udp >/dev/null 2>&1
@@ -835,41 +831,68 @@ manage_tools() {
 
                     clear
                     echo -e "${GREEN}iperf3 服务端已启动！${RESET}"
-                    echo -e "${CYAN}------------------------------------------------${RESET}"
-                    echo -e "测速端口: ${YELLOW}$iperf_port${RESET}"
-                    echo -e "您的公网 IP: ${YELLOW}$PUBLIC_IPV4${RESET}"
-                    echo -e "客户端指令: ${WHITE}iperf3 -c $PUBLIC_IPV4 -p $iperf_port${RESET}"
-                    echo -e "${CYAN}------------------------------------------------${RESET}"
-                    echo -e "${MAGENTA}窗口说明：下方为实时日志，按 Ctrl+C 可停止。${RESET}"
+                    echo -e "${YELLOW}测速地址: ${WHITE}$PUBLIC_IPV4${RESET}"
+                    echo -e "${YELLOW}测速端口: ${WHITE}$iperf_port${RESET}"
+                    echo -e "${YELLOW}客户端指令: ${WHITE}iperf3 -c $PUBLIC_IPV4 -p $iperf_port${RESET}"
+                    echo -e "${MAGENTA}-------------------------------------${RESET}"
+                    echo -e "${CYAN}测速正在运行... 输入 [q] 或 [0] 停止测试并关闭端口${RESET}"
                     
-                    # 在后台运行并获取 PID，但不使用 -D 模式，以便捕捉退出
                     iperf3 -s -p $iperf_port & 
                     IPERF_PID=$!
 
-                    echo -e "${RED}>>> 测速中... 输入 [q] 或 [0] 停止测试并关闭端口 <<<${RESET}"
                     while true; do
                         read -n 1 -r input
                         if [[ "$input" == "q" || "$input" == "0" ]]; then
-                            echo -e "\n${YELLOW}正在停止服务并关闭端口...${RESET}"
+                            echo -e "\n${YELLOW}正在停止 iperf3 并清理防火墙规则...${RESET}"
                             kill $IPERF_PID >/dev/null 2>&1
                             pkill iperf3 >/dev/null 2>&1
-                            # 自动收回防火墙端口
                             if command -v ufw >/dev/null 2>&1 && ufw status | grep -qw "active"; then 
                                 ufw delete allow ${iperf_port}/tcp >/dev/null 2>&1
                                 ufw delete allow ${iperf_port}/udp >/dev/null 2>&1
                             fi
-                            echo -e "${GREEN}端口已关闭，已回到安全状态。${RESET}"
+                            echo -e "${GREEN}端口已关闭。${RESET}"
                             break
                         fi
                     done
-
                 elif [ "$ip_ch" == "2" ]; then
                     pkill iperf3 >/dev/null 2>&1
-                    # 尝试彻底卸载
-                    sudo apt-get -y purge iperf3 && sudo apt-get -y autoremove
-                    echo -e "${GREEN}iperf3 已彻底卸载。${RESET}"
+                    apt-get -y purge iperf3 && apt-get -y autoremove
+                    echo -e "${GREEN}已彻底卸载 iperf3。${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+
+            3)
+                clear
+                echo -e "${CYAN}========= Speedtest 官方测速 =========${RESET}"
+                echo "  1. 立即运行测试 (测试完可选卸载)"
+                echo "  2. 彻底卸载 Speedtest (含软件源)"
+                echo "  0. 返回上一级"
+                echo -e "${MAGENTA}-------------------------------------${RESET}"
+                read -p "请选择: " sp_ch
+
+                if [ "$sp_ch" == "1" ]; then
+                    if ! command -v speedtest &> /dev/null; then
+                        echo -e "${YELLOW}--> 正在安装 Ookla 官方源...${RESET}"
+                        curl -sL https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | sudo bash
+                        apt install speedtest -y
+                    fi
+                    clear
+                    echo -e "${GREEN}正在执行测速，请稍候...${RESET}"
+                    speedtest
+                    echo -e "\n${MAGENTA}-------------------------------------${RESET}"
+                    read -p "测试完成。是否立即卸载测速工具? (y/n): " temp_un
+                    if [[ "$temp_un" =~ ^[Yy]$ ]]; then
+                        apt-get purge -y speedtest && apt-get -y autoremove
+                        echo -e "${GREEN}测速工具已临时清理。${RESET}"
+                    fi
+                elif [ "$sp_ch" == "2" ]; then
+                    apt-get purge -y speedtest speedtest-cli >/dev/null 2>&1
+                    rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
+                    apt-get -y autoremove
+                    echo -e "${GREEN}已彻底卸载 Speedtest。${RESET}"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            # 选项 2, 4, 5, 6, 7, 8 保持原脚本逻辑即可
             2)
                 read -p "1.部署 2.卸载 : " dk_ch
                 if [ "$dk_ch" == "1" ]; then
@@ -884,51 +907,6 @@ manage_tools() {
                 elif [ "$dk_ch" == "2" ]; then
                     docker rm -f SpeedTest >/dev/null 2>&1
                     echo -e "${GREEN}SpeedTest 容器已卸载。${RESET}"
-                fi
-                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
-            3)
-                clear
-                echo -e "${CYAN}========= Speedtest 官方测速工具 =========${RESET}"
-                echo "1. 运行网络测速 (立即执行)"
-                echo "2. 彻底卸载 Speedtest (含卸载软件源)"
-                echo "0. 返回上一级"
-                echo -e "${MAGENTA}------------------------------------------${RESET}"
-                read -p "请选择: " sp_ch
-
-                if [ "$sp_ch" == "1" ]; then
-                    # 安装逻辑：优先检测官方版 speedtest
-                    if ! command -v speedtest &> /dev/null; then
-                        echo -e "${YELLOW}正在配置 Ookla 官方软件源并安装...${RESET}"
-                        # 使用你提供的官方安装脚本
-                        curl -sL https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | sudo bash
-                        apt-get install speedtest -y
-                    fi
-
-                    clear
-                    echo -e "${GREEN}正在开始网络测速，请稍候...${RESET}"
-                    echo -e "${WHITE}(首次运行可能需要输入 'YES' 同意 Ookla 条款)${RESET}"
-                    # 运行测速
-                    speedtest
-                    
-                    echo -e "\n${CYAN}------------------------------------------${RESET}"
-                    read -p "测试完成。是否立即卸载测速工具以保持系统精简？(y/n): " temp_uninstall
-                    if [[ "$temp_uninstall" =~ ^[Yy]$ ]]; then
-                        echo -e "${YELLOW}正在清理...${RESET}"
-                        apt-get purge -y speedtest
-                        # 自动清理不再需要的依赖
-                        apt-get -y autoremove
-                        echo -e "${GREEN}已临时卸载。${RESET}"
-                    fi
-
-                elif [ "$sp_ch" == "2" ]; then
-                    echo -e "${YELLOW}正在彻底清理 Speedtest 及其相关配置...${RESET}"
-                    # 卸载程序[cite: 1]
-                    apt-get purge -y speedtest speedtest-cli >/dev/null 2>&1
-                    # 清理软件源文件，防止 apt update 时残留
-                    rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
-                    # 自动清理依赖[cite: 1]
-                    apt-get -y autoremove
-                    echo -e "${GREEN}Speedtest 已从系统中彻底移除。${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             4)
@@ -982,7 +960,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
