@@ -791,17 +791,17 @@ set_dns() {
 manage_tools() {
     while true; do
         clear
-        echo -e "${CYAN}============= [3] 实用工具箱 =============${RESET}"
+        echo -e "${CYAN}================ [3] 实用工具箱 ================${RESET}"
         echo "  1. 测速节点: iperf3 (自定义端口/即开即关)"
         echo "  2. 简易面板: Docker SpeedTest (端口 2333)"
         echo "  3. 网络测速: speedtest (官方 CLI/可选卸载)"
-        echo "  4. 动态域名: Cloudflare DDNS (强制同步/含卸载)"
+        echo "  4. 动态域名: Cloudflare DDNS (强制同步/卸载)"
         echo "  5. 路由追踪: nexttrace (即时测试/可选卸载)"
         echo "  6. 路由监测: mtr (即时测试/可选卸载)"
         echo "  7. 部署 Docker 容器引擎"
         echo "  8. 修改系统 DNS 地址"
         echo "  0. 返回主菜单"
-        echo -e "${MAGENTA}==========================================${RESET}"
+        echo -e "${MAGENTA}================================================${RESET}"
         read -p "请选择操作 [0-8]: " tool_choice
 
         case "$tool_choice" in
