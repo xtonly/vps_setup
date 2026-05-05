@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.1 终极版)
+# VPS 综合初始化与管理工具 (5.0 终极版)
 # 包含 BBR 状态实时探测与极致排版
 # ========================================================
 
@@ -797,7 +797,7 @@ manage_tools() {
         echo "  5. 路由追踪: nexttrace"
         echo "  6. 路由监测: mtr"
         echo "  7. 部署 Docker 容器引擎"
-        echo -e "  ${YELLOW}8. 修改系统 DNS 地址${RESET}"
+        echo "  8. 修改系统 DNS 地址"
         echo "  0. 返回主菜单"
         echo -e "${MAGENTA}==========================================${RESET}"
         read -p "请选择操作 [0-8]: " tool_choice
@@ -889,7 +889,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
