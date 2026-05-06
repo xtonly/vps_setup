@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.0 终极版)
+# VPS 综合初始化与管理工具 (5.1 终极版)
 # 包含 BBR 状态实时探测与极致排版
 # ========================================================
 
@@ -786,7 +786,7 @@ set_dns() {
 }
 
 # ==========================================
-# [3] 实用工具箱 - 增强版
+# [3] 实用工具箱 - 增强版 (含 TCPING)
 # ==========================================
 manage_tools() {
     while true; do
@@ -800,9 +800,10 @@ manage_tools() {
         echo "  6. 路由监测: mtr (即时测试/可选卸载)"
         echo "  7. 部署 Docker 容器引擎"
         echo "  8. 修改系统 DNS 地址"
+        echo "  9. 端口检测: TCPing (即时测试/可选卸载)"
         echo "  0. 返回主菜单"
         echo -e "${MAGENTA}================================================${RESET}"
-        read -p "请选择操作 [0-8]: " tool_choice
+        read -p "请选择操作 [0-9]: " tool_choice
 
         case "$tool_choice" in
             1)
@@ -890,9 +891,9 @@ manage_tools() {
                         echo -e "${GREEN}工具已移除。${RESET}"
                     fi
                 elif [ "$sp_ch" == "2" ]; then
-                    apt-get purge -y speedtest speedtest-cli >/dev/null 2>&1[cite: 1]
+                    apt-get purge -y speedtest speedtest-cli >/dev/null 2>&1
                     rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
-                    apt-get -y autoremove[cite: 1]
+                    apt-get -y autoremove
                     echo -e "${GREEN}已彻底移除。${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
@@ -974,17 +975,49 @@ manage_tools() {
                     echo -e "${MAGENTA}----------------------------------${RESET}"
                     read -p "测试完成。是否立即卸载 MTR? (y/n): " temp_un
                     if [[ "$temp_un" =~ ^[Yy]$ ]]; then
-                        apt-get purge -y mtr && apt-get -y autoremove[cite: 1]
+                        apt-get purge -y mtr && apt-get -y autoremove
                         echo -e "${GREEN}MTR 已移除。${RESET}"
                     fi
                 elif [ "$mtr_ch" == "2" ]; then
-                    apt-get purge -y mtr && apt-get -y autoremove[cite: 1]
+                    apt-get purge -y mtr && apt-get -y autoremove
                     echo -e "${GREEN}已卸载。${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
 
             7) install_docker ;;
             8) set_dns ;;
+            
+            9)
+                clear
+                echo -e "${CYAN}========= TCPING 端口检测 =========${RESET}"
+                echo "  1. 运行端口测试 (测试完可选卸载)"
+                echo "  2. 彻底卸载 TCPING"
+                echo "  0. 返回上一级"
+                echo -e "${MAGENTA}-----------------------------------${RESET}"
+                read -p "请选择: " tcping_ch
+                if [ "$tcping_ch" == "1" ]; then
+                    if ! command -v tcping &> /dev/null; then
+                        echo -e "${YELLOW}--> 正在安装 TCPING...${RESET}"
+                        apt update -y && apt install -y tcping
+                    fi
+                    read -p "请输入监测目标 (IP/域名, 默认 8.8.8.8): " tcp_target
+                    [[ -z "$tcp_target" ]] && tcp_target="8.8.8.8"
+                    read -p "请输入监测端口 (默认 443): " tcp_port
+                    [[ -z "$tcp_port" ]] && tcp_port=443
+                    echo -e "${YELLOW}提示: 若程序未自动停止，请随时按 Ctrl+C 结束测试${RESET}"
+                    tcping $tcp_target $tcp_port
+                    echo -e "${MAGENTA}-----------------------------------${RESET}"
+                    read -p "测试完成。是否立即卸载 TCPING? (y/n): " temp_un
+                    if [[ "$temp_un" =~ ^[Yy]$ ]]; then
+                        apt-get purge -y tcping && apt-get -y autoremove
+                        echo -e "${GREEN}TCPING 已移除。${RESET}"
+                    fi
+                elif [ "$tcping_ch" == "2" ]; then
+                    apt-get purge -y tcping && apt-get -y autoremove
+                    echo -e "${GREEN}已卸载 TCPING。${RESET}"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+
             0) return ;;
         esac
     done
@@ -1008,7 +1041,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
