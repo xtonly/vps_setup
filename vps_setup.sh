@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.0 终极版)
+# VPS 综合初始化与管理工具 (5.1 终极版)
 # 包含 BBR 状态实时探测与极致排版
 # ========================================================
 
@@ -997,18 +997,46 @@ manage_tools() {
                 read -p "请选择: " tcping_ch
                 if [ "$tcping_ch" == "1" ]; then
                     if ! command -v tcping &> /dev/null; then
-                        echo -e "${YELLOW}--> 正在安装 TCPING (获取最新版二进制文件)...${RESET}"
-                        local sys_arch=$(uname -m)
-                        if [[ "$sys_arch" == "aarch64" || "$sys_arch" == "arm64" ]]; then
-                            curl -sL https://github.com/pouriyajamshidi/tcping/releases/latest/download/tcping_Linux_arm64.tar.gz | tar xz -C /usr/local/bin/ 2>/dev/null
-                        else
-                            curl -sL https://github.com/pouriyajamshidi/tcping/releases/latest/download/tcping_Linux_amd64.tar.gz | tar xz -C /usr/local/bin/ 2>/dev/null
-                        fi
-                        chmod +x /usr/local/bin/tcping 2>/dev/null
+                        echo -e "${YELLOW}--> 正在安装 TCPING (启用防墙轮询加速下载)...${RESET}"
                         
-                        # 检测是否安装成功
-                        if ! command -v tcping &> /dev/null; then
-                            echo -e "${RED}安装失败，可能是网络无法访问 GitHub，请稍后再试！${RESET}"
+                        local sys_arch=$(uname -m)
+                        local dl_file="tcping_Linux_amd64.tar.gz"
+                        if [[ "$sys_arch" == "aarch64" || "$sys_arch" == "arm64" ]]; then
+                            dl_file="tcping_Linux_arm64.tar.gz"
+                        fi
+                        
+                        # 构建高可用 GitHub 镜像池
+                        local mirrors=(
+                            "https://ghp.ci/"
+                            "https://ghproxy.cn/"
+                            "https://mirror.ghproxy.com/"
+                            "https://moeyy.cn/gh-proxy/"
+                            "" # 最后一个留空，尝试直连
+                        )
+                        
+                        local success=0
+                        for proxy in "${mirrors[@]}"; do
+                            if [[ -n "$proxy" ]]; then
+                                echo -e "${BLUE}--> 正在尝试镜像节点: ${proxy}${RESET}"
+                            else
+                                echo -e "${BLUE}--> 正在尝试直连 GitHub...${RESET}"
+                            fi
+                            
+                            # 设置 15 秒超时防卡死，屏蔽错误输出以保持界面清爽
+                            curl -sL -m 15 "${proxy}https://github.com/pouriyajamshidi/tcping/releases/latest/download/${dl_file}" | tar xz -C /usr/local/bin/ >/dev/null 2>&1
+                            
+                            chmod +x /usr/local/bin/tcping >/dev/null 2>&1
+                            
+                            # 验证是否成功生成命令
+                            if command -v tcping &> /dev/null; then
+                                success=1
+                                echo -e "${GREEN}--> 二进制文件获取并配置成功！${RESET}"
+                                break
+                            fi
+                        done
+                        
+                        if [ "$success" -eq 0 ]; then
+                            echo -e "${RED}安装失败：所有加速镜像均无法连接。请检查服务器网络，或尝试修改 DNS！${RESET}"
                             read -n 1 -s -r -p "按任意键返回..."
                             continue
                         fi
@@ -1018,21 +1046,21 @@ manage_tools() {
                     [[ -z "$tcp_target" ]] && tcp_target="8.8.8.8"
                     read -p "请输入监测端口 (默认 443): " tcp_port
                     [[ -z "$tcp_port" ]] && tcp_port=443
-                    echo -e "${YELLOW}提示: 若程序未自动停止，请随时按 Ctrl+C 结束测试${RESET}"
+                    echo -e "${YELLOW}提示: 测速运行中... 请随时按 Ctrl+C 结束测试${RESET}"
+                    
                     tcping $tcp_target $tcp_port
                     
                     echo -e "${MAGENTA}-----------------------------------${RESET}"
-                    read -p "测试完成。是否立即卸载 TCPING? (y/n): " temp_un
+                    read -p "测试完成。是否立即彻底卸载 TCPING 以保持系统纯洁? (y/n): " temp_un
                     if [[ "$temp_un" =~ ^[Yy]$ ]]; then
                         rm -f /usr/local/bin/tcping
-                        echo -e "${GREEN}TCPING 已移除。${RESET}"
+                        echo -e "${GREEN}TCPING 已安全移除。${RESET}"
                     fi
                 elif [ "$tcping_ch" == "2" ]; then
                     rm -f /usr/local/bin/tcping
                     echo -e "${GREEN}已彻底卸载 TCPING。${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
-
             0) return ;;
         esac
     done
@@ -1056,7 +1084,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
