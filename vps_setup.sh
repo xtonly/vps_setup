@@ -107,7 +107,7 @@ auto_init() {
     if [ ! -f "/root/.vps_init_done" ]; then
         clear
         echo -e "${CYAN}[首次运行] 正在自动初始化 ${SYS_PRETTY_NAME} 基础环境...${RESET}"
-        echo -e "${MAGENTA}------------------------------------------------${RESET}"
+        echo -e "${MAGENTA}-----------------------------------------------------------------------${RESET}"
         
         echo -e "${YELLOW}--> 更新系统并安装基础依赖...${RESET}"
         apt-get -y update && apt-get -y upgrade
