@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.1 终极版)
+# VPS 综合初始化与管理工具 (5.0 终极版)
 # 包含 BBR 状态实时探测与极致排版
 # ========================================================
 
@@ -997,24 +997,39 @@ manage_tools() {
                 read -p "请选择: " tcping_ch
                 if [ "$tcping_ch" == "1" ]; then
                     if ! command -v tcping &> /dev/null; then
-                        echo -e "${YELLOW}--> 正在安装 TCPING...${RESET}"
-                        apt update -y && apt install -y tcping
+                        echo -e "${YELLOW}--> 正在安装 TCPING (获取最新版二进制文件)...${RESET}"
+                        local sys_arch=$(uname -m)
+                        if [[ "$sys_arch" == "aarch64" || "$sys_arch" == "arm64" ]]; then
+                            curl -sL https://github.com/pouriyajamshidi/tcping/releases/latest/download/tcping_Linux_arm64.tar.gz | tar xz -C /usr/local/bin/ 2>/dev/null
+                        else
+                            curl -sL https://github.com/pouriyajamshidi/tcping/releases/latest/download/tcping_Linux_amd64.tar.gz | tar xz -C /usr/local/bin/ 2>/dev/null
+                        fi
+                        chmod +x /usr/local/bin/tcping 2>/dev/null
+                        
+                        # 检测是否安装成功
+                        if ! command -v tcping &> /dev/null; then
+                            echo -e "${RED}安装失败，可能是网络无法访问 GitHub，请稍后再试！${RESET}"
+                            read -n 1 -s -r -p "按任意键返回..."
+                            continue
+                        fi
                     fi
+                    
                     read -p "请输入监测目标 (IP/域名, 默认 8.8.8.8): " tcp_target
                     [[ -z "$tcp_target" ]] && tcp_target="8.8.8.8"
                     read -p "请输入监测端口 (默认 443): " tcp_port
                     [[ -z "$tcp_port" ]] && tcp_port=443
                     echo -e "${YELLOW}提示: 若程序未自动停止，请随时按 Ctrl+C 结束测试${RESET}"
                     tcping $tcp_target $tcp_port
+                    
                     echo -e "${MAGENTA}-----------------------------------${RESET}"
                     read -p "测试完成。是否立即卸载 TCPING? (y/n): " temp_un
                     if [[ "$temp_un" =~ ^[Yy]$ ]]; then
-                        apt-get purge -y tcping && apt-get -y autoremove
+                        rm -f /usr/local/bin/tcping
                         echo -e "${GREEN}TCPING 已移除。${RESET}"
                     fi
                 elif [ "$tcping_ch" == "2" ]; then
-                    apt-get purge -y tcping && apt-get -y autoremove
-                    echo -e "${GREEN}已卸载 TCPING。${RESET}"
+                    rm -f /usr/local/bin/tcping
+                    echo -e "${GREEN}已彻底卸载 TCPING。${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
 
@@ -1041,7 +1056,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
