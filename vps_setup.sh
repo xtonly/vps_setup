@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.1 终极版)
+# VPS 综合初始化与管理工具 (5.0 终极版)
 # 包含 BBR 状态实时探测与极致排版
 # ========================================================
 
@@ -997,13 +997,29 @@ manage_tools() {
                 read -p "请选择: " tcping_ch
                 if [ "$tcping_ch" == "1" ]; then
                     if ! command -v tcping &> /dev/null; then
-                        echo -e "${YELLOW}--> 正在安装 TCPING (启用防墙轮询加速下载)...${RESET}"
+                        echo -e "${YELLOW}--> 正在自动获取最新版 TCPING 的真实下载地址...${RESET}"
                         
                         local sys_arch=$(uname -m)
-                        local dl_file="tcping_Linux_amd64.tar.gz"
+                        local search_pattern="amd64|x86_64"
                         if [[ "$sys_arch" == "aarch64" || "$sys_arch" == "arm64" ]]; then
-                            dl_file="tcping_Linux_arm64.tar.gz"
+                            search_pattern="arm64|aarch64"
                         fi
+
+                        # 利用 jq 动态解析最新的真实文件名，避免硬编码因大小写或版本更新导致 404
+                        local real_url=$(curl -sL -m 10 "https://api.github.com/repos/pouriyajamshidi/tcping/releases/latest" | jq -r '.assets[].browser_download_url' | grep -i "linux" | grep -E -i "(${search_pattern})" | grep "\.tar\.gz" | head -n 1)
+                        
+                        if [[ -z "$real_url" || "$real_url" == "null" ]]; then
+                            echo -e "${RED}API 解析失败！可能是 GitHub 限流，将自动启用内置备用版本链接...${RESET}"
+                            # 备用版本：硬编码一个绝对准确存在的老版本链接作为兜底
+                            if [[ "$sys_arch" == "aarch64" || "$sys_arch" == "arm64" ]]; then
+                                real_url="https://github.com/pouriyajamshidi/tcping/releases/download/v2.4.0/tcping_Linux_ARM64.tar.gz"
+                            else
+                                real_url="https://github.com/pouriyajamshidi/tcping/releases/download/v2.4.0/tcping_Linux_X86_64.tar.gz"
+                            fi
+                        fi
+                        
+                        # 剥离出基础路径，用于完美的镜像拼接
+                        local dl_path=$(echo "$real_url" | awk -F'github.com/' '{print $2}')
                         
                         # 构建高可用 GitHub 镜像池
                         local mirrors=(
@@ -1011,7 +1027,7 @@ manage_tools() {
                             "https://ghproxy.cn/"
                             "https://mirror.ghproxy.com/"
                             "https://moeyy.cn/gh-proxy/"
-                            "" # 最后一个留空，尝试直连
+                            "" # 最后一个留空，代表尝试直连
                         )
                         
                         local success=0
@@ -1022,21 +1038,20 @@ manage_tools() {
                                 echo -e "${BLUE}--> 正在尝试直连 GitHub...${RESET}"
                             fi
                             
-                            # 设置 15 秒超时防卡死，屏蔽错误输出以保持界面清爽
-                            curl -sL -m 15 "${proxy}https://github.com/pouriyajamshidi/tcping/releases/latest/download/${dl_file}" | tar xz -C /usr/local/bin/ >/dev/null 2>&1
-                            
+                            # 15秒防卡死，屏蔽错误输出保持界面清爽
+                            curl -sL -m 15 "${proxy}https://github.com/${dl_path}" | tar xz -C /usr/local/bin/ >/dev/null 2>&1
                             chmod +x /usr/local/bin/tcping >/dev/null 2>&1
                             
-                            # 验证是否成功生成命令
+                            # 验证命令是否成功安装
                             if command -v tcping &> /dev/null; then
                                 success=1
-                                echo -e "${GREEN}--> 二进制文件获取并配置成功！${RESET}"
+                                echo -e "${GREEN}--> TCPING 二进制文件获取并部署成功！${RESET}"
                                 break
                             fi
                         done
                         
                         if [ "$success" -eq 0 ]; then
-                            echo -e "${RED}安装失败：所有加速镜像均无法连接。请检查服务器网络，或尝试修改 DNS！${RESET}"
+                            echo -e "${RED}安装失败：所有加速镜像及直连均无法下载，请检查服务器网络！${RESET}"
                             read -n 1 -s -r -p "按任意键返回..."
                             continue
                         fi
@@ -1084,7 +1099,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
