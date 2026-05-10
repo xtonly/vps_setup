@@ -410,7 +410,7 @@ install_docker() {
         clear
         echo -e "${CYAN}========= Docker 引擎管理 =========${RESET}"
         echo "  1. 部署 Docker 引擎 (官方源)"
-        echo "  2. 强行更新最新版本并重置配置 (清理旧API/冲突设置)"
+        echo "  2. 强行更新最新版本并重置配置 (跳过等待/清理旧API)"
         echo "  3. 彻底卸载 Docker 及清理所有容器数据"
         echo "  0. 返回上一级"
         echo -e "${MAGENTA}-----------------------------------${RESET}"
@@ -430,7 +430,14 @@ install_docker() {
                 ;;
             2)
                 echo -e "${YELLOW}--> 正在强行更新 Docker 引擎...${RESET}"
-                curl -fsSL https://get.docker.com | bash -s docker
+                
+                # 智能判断：如果已有 docker，走 apt 升级绕过 20 秒等待；如果没有，走官方脚本安装
+                if command -v docker &> /dev/null; then
+                    apt-get update -y
+                    apt-get install -y --only-upgrade docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                else
+                    curl -fsSL https://get.docker.com | bash -s docker
+                fi
                 
                 echo -e "${YELLOW}--> 正在清理旧配置及冲突设置...${RESET}"
                 # 停止服务以防文件被占用
@@ -439,13 +446,13 @@ install_docker() {
                 # 1. 还原 daemon.json
                 if [ -f /etc/docker/daemon.json ]; then
                     mv /etc/docker/daemon.json /etc/docker/daemon.json.bak_$(date +%s)
-                    echo -e "${BLUE}已备份旧的 daemon.json，并创建全新配置。${RESET}"
+                    echo -e "${BLUE}已备份旧的 daemon.json，并创建全新默认配置。${RESET}"
                 fi
-                # 创建一个最基础的空配置或默认配置
+                # 创建一个最基础的空配置
                 mkdir -p /etc/docker
                 echo "{}" > /etc/docker/daemon.json
 
-                # 2. 清理可能引起冲突的 systemd 守护进程重载配置 (如旧的 API 端口暴露或代理)
+                # 2. 清理可能引起冲突的 systemd 守护进程重载配置 (如旧的 API 端口暴露)
                 if [ -d /etc/systemd/system/docker.service.d ]; then
                     rm -rf /etc/systemd/system/docker.service.d/
                     echo -e "${BLUE}已清理 systemd 级别的 docker 服务覆盖配置。${RESET}"
