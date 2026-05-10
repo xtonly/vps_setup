@@ -402,30 +402,95 @@ run_eshoes() {
     echo "" && read -n 1 -s -r -p "E-Shoes 脚本执行结束，按任意键返回..."
 }
 
+# ==========================================
+# Docker 引擎管理模块
+# ==========================================
 install_docker() {
-    clear
-    echo -e "${CYAN}============ 安装 Docker 与 Docker Compose ============${RESET}"
-    if command -v docker &> /dev/null; then
-        echo -e "${GREEN}检测到 Docker 已安装！版本信息：${RESET}"; docker --version
-    else
-        echo -e "${YELLOW}--> 正在通过官方源一键安装 Docker...${RESET}"
-        curl -fsSL https://get.docker.com | bash -s docker
-        systemctl enable --now docker
-        echo -e "${GREEN}Docker 环境安装与启动完成！${RESET}"
-    fi
-    echo "" && read -n 1 -s -r -p "按任意键返回..."
-}
+    while true; do
+        clear
+        echo -e "${CYAN}========= Docker 引擎管理 =========${RESET}"
+        echo "  1. 部署 Docker 引擎 (官方源)"
+        echo "  2. 强行更新最新版本并重置配置 (清理旧API/冲突设置)"
+        echo "  3. 彻底卸载 Docker 及清理所有容器数据"
+        echo "  0. 返回上一级"
+        echo -e "${MAGENTA}-----------------------------------${RESET}"
+        read -p "请选择 [0-3]: " docker_ch
 
-check_caddy_installed() {
-    if command -v caddy >/dev/null 2>&1; then return 0; else return 1; fi
-}
-check_port_running() {
-    local port=$1
-    if timeout 1 bash -c "echo > /dev/tcp/127.0.0.1/$port" 2>/dev/null; then
-        echo -e "${GREEN}运行中${RESET}"
-    else
-        echo -e "${RED}未运行${RESET}"
-    fi
+        case "$docker_ch" in
+            1)
+                if ! command -v docker &> /dev/null; then
+                    echo -e "${YELLOW}--> 正在安装 Docker...${RESET}"
+                    curl -fsSL https://get.docker.com | bash -s docker
+                    systemctl enable --now docker
+                    echo -e "${GREEN}Docker 安装完成！${RESET}"
+                else
+                    echo -e "${GREEN}检测到 Docker 已安装。如果需要修复或更新，请使用选项 2。${RESET}"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            2)
+                echo -e "${YELLOW}--> 正在强行更新 Docker 引擎...${RESET}"
+                curl -fsSL https://get.docker.com | bash -s docker
+                
+                echo -e "${YELLOW}--> 正在清理旧配置及冲突设置...${RESET}"
+                # 停止服务以防文件被占用
+                systemctl stop docker >/dev/null 2>&1
+                
+                # 1. 还原 daemon.json
+                if [ -f /etc/docker/daemon.json ]; then
+                    mv /etc/docker/daemon.json /etc/docker/daemon.json.bak_$(date +%s)
+                    echo -e "${BLUE}已备份旧的 daemon.json，并创建全新配置。${RESET}"
+                fi
+                # 创建一个最基础的空配置或默认配置
+                mkdir -p /etc/docker
+                echo "{}" > /etc/docker/daemon.json
+
+                # 2. 清理可能引起冲突的 systemd 守护进程重载配置 (如旧的 API 端口暴露或代理)
+                if [ -d /etc/systemd/system/docker.service.d ]; then
+                    rm -rf /etc/systemd/system/docker.service.d/
+                    echo -e "${BLUE}已清理 systemd 级别的 docker 服务覆盖配置。${RESET}"
+                fi
+
+                # 重新加载并启动
+                systemctl daemon-reload
+                systemctl enable docker
+                systemctl start docker
+                
+                echo -e "${GREEN}Docker 更新并重置完成！现在处于干净的默认状态。${RESET}"
+                echo "" && read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            3)
+                echo -e "${RED}警告：这将卸载 Docker 引擎，并删除所有本地容器、镜像、卷和网络配置！${RESET}"
+                read -p "确认要彻底卸载吗？(y/n): " confirm_un
+                if [[ "$confirm_un" =~ ^[Yy]$ ]]; then
+                    echo -e "${YELLOW}--> 正在卸载 Docker...${RESET}"
+                    # 停止服务
+                    systemctl stop docker >/dev/null 2>&1
+                    systemctl stop docker.socket >/dev/null 2>&1
+                    
+                    # 卸载软件包
+                    apt-get purge -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras
+                    
+                    # 清理残留数据和配置
+                    rm -rf /var/lib/docker
+                    rm -rf /var/lib/containerd
+                    rm -rf /etc/docker
+                    rm -rf /etc/systemd/system/docker.service.d
+                    apt-get autoremove -y
+                    
+                    echo -e "${GREEN}Docker 已彻底卸载，系统已清理干净。${RESET}"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            0)
+                return
+                ;;
+            *)
+                echo -e "${RED}输入错误，请重新选择。${RESET}"
+                sleep 1
+                ;;
+        esac
+    done
 }
 
 manage_caddy() {
@@ -798,7 +863,7 @@ manage_tools() {
         echo "  4. 动态域名: Cloudflare DDNS (强制同步/卸载)"
         echo "  5. 路由追踪: nexttrace (即时测试/可选卸载)"
         echo "  6. 路由监测: mtr (即时测试/可选卸载)"
-        echo "  7. 部署 Docker 容器引擎"
+        echo "  7. Docker 引擎管理 (安装/更新/卸载)"
         echo "  8. 修改系统 DNS 地址"
         echo "  9. 端口检测: TCPing (即时测试/可选卸载)"
         echo "  0. 返回主菜单"
