@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.0 终极版)
-# 包含 BBR 状态实时探测与极致排版
+# VPS 综合初始化与管理工具 (5.1 终极版)
+# 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # ========================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -111,7 +111,7 @@ auto_init() {
         
         echo -e "${YELLOW}--> 更新系统并安装基础依赖...${RESET}"
         apt-get -y update && apt-get -y upgrade
-        apt install -y curl wget socat cron sudo jq
+        apt install -y curl wget socat cron sudo jq bc
         update-grub 2>/dev/null
         
         echo -e "${YELLOW}--> 设置 IPv4 优先...${RESET}"
@@ -254,7 +254,7 @@ purge_unused_kernels() {
         echo -e "${GREEN}没有检测到需要清理的未使用内核。${RESET}"
     fi
 
-    # 2. 清理多余的编译工具链 (跨架构支持: aarch64 & x86_64)
+    # 2. 清理多余的编译工具链
     echo -e "${YELLOW}--> 正在扫描并清理闲置的编译套件(gcc/g++/binutils等)...${RESET}"
     COMPILE_PKGS=$(dpkg -l | awk '/^ii/ {print $2}' | grep -E '^(cpp|gcc|g\+\+|binutils).*linux-gnu|linux-libc-dev')
     if [ -n "$COMPILE_PKGS" ]; then
@@ -295,7 +295,6 @@ force_boot_latest_installed() {
 }
 
 manage_kernel() {
-    # 动态检测系统架构，适配 ARM64 和 AMD64
     local SYS_ARCH=$(dpkg --print-architecture)
     if [ "$SYS_ARCH" == "arm64" ]; then
         local K_ARCH="arm64"
@@ -327,7 +326,6 @@ manage_kernel() {
                 echo -e "${YELLOW}--> 正在处理稳定版内核强行锁定安装请求...${RESET}"
                 apt update -y
                 if [ "$OS_ID" == "debian" ]; then
-                    # 使用动态包名替换写死的 amd64
                     EXACT_STABLE_VER=$(apt-cache madison ${CLOUD_KERNEL_PKG} | grep -v "backports" | head -n 1 | awk '{print $3}')
                     if [[ -n "$EXACT_STABLE_VER" ]]; then
                         echo -e "${GREEN}成功抓取到纯净稳定版(含安全更新)包版本号: ${EXACT_STABLE_VER}${RESET}"
@@ -345,7 +343,6 @@ manage_kernel() {
                 echo -e "${YELLOW}--> 正在处理最新版内核安装请求...${RESET}"
                 apt update -y
                 if [ "$OS_ID" == "debian" ]; then
-                    # 同样在这里使用动态包名
                     LC_ALL=C apt install -t ${OS_CODENAME}-backports ${CLOUD_KERNEL_PKG} -y
                 else
                     HWE_PKG="linux-generic-hwe-${OS_VER}"
@@ -402,103 +399,8 @@ run_eshoes() {
     echo "" && read -n 1 -s -r -p "E-Shoes 脚本执行结束，按任意键返回..."
 }
 
-# ==========================================
-# Docker 引擎管理模块
-# ==========================================
-install_docker() {
-    while true; do
-        clear
-        echo -e "${CYAN}========= Docker 引擎管理 =========${RESET}"
-        echo "  1. 部署 Docker 引擎 (官方源)"
-        echo "  2. 强行更新最新版本并重置配置 (跳过等待/清理旧API)"
-        echo "  3. 彻底卸载 Docker 及清理所有容器数据"
-        echo "  0. 返回上一级"
-        echo -e "${MAGENTA}-----------------------------------${RESET}"
-        read -p "请选择 [0-3]: " docker_ch
-
-        case "$docker_ch" in
-            1)
-                if ! command -v docker &> /dev/null; then
-                    echo -e "${YELLOW}--> 正在安装 Docker...${RESET}"
-                    curl -fsSL https://get.docker.com | bash -s docker
-                    systemctl enable --now docker
-                    echo -e "${GREEN}Docker 安装完成！${RESET}"
-                else
-                    echo -e "${GREEN}检测到 Docker 已安装。如果需要修复或更新，请使用选项 2。${RESET}"
-                fi
-                echo "" && read -n 1 -s -r -p "按任意键返回..."
-                ;;
-            2)
-                echo -e "${YELLOW}--> 正在强行更新 Docker 引擎...${RESET}"
-                
-                # 智能判断：如果已有 docker，走 apt 升级绕过 20 秒等待；如果没有，走官方脚本安装
-                if command -v docker &> /dev/null; then
-                    apt-get update -y
-                    apt-get install -y --only-upgrade docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-                else
-                    curl -fsSL https://get.docker.com | bash -s docker
-                fi
-                
-                echo -e "${YELLOW}--> 正在清理旧配置及冲突设置...${RESET}"
-                # 停止服务以防文件被占用
-                systemctl stop docker >/dev/null 2>&1
-                
-                # 1. 还原 daemon.json
-                if [ -f /etc/docker/daemon.json ]; then
-                    mv /etc/docker/daemon.json /etc/docker/daemon.json.bak_$(date +%s)
-                    echo -e "${BLUE}已备份旧的 daemon.json，并创建全新默认配置。${RESET}"
-                fi
-                # 创建一个最基础的空配置
-                mkdir -p /etc/docker
-                echo "{}" > /etc/docker/daemon.json
-
-                # 2. 清理可能引起冲突的 systemd 守护进程重载配置 (如旧的 API 端口暴露)
-                if [ -d /etc/systemd/system/docker.service.d ]; then
-                    rm -rf /etc/systemd/system/docker.service.d/
-                    echo -e "${BLUE}已清理 systemd 级别的 docker 服务覆盖配置。${RESET}"
-                fi
-
-                # 重新加载并启动
-                systemctl daemon-reload
-                systemctl enable docker
-                systemctl start docker
-                
-                echo -e "${GREEN}Docker 更新并重置完成！现在处于干净的默认状态。${RESET}"
-                echo "" && read -n 1 -s -r -p "按任意键返回..."
-                ;;
-            3)
-                echo -e "${RED}警告：这将卸载 Docker 引擎，并删除所有本地容器、镜像、卷和网络配置！${RESET}"
-                read -p "确认要彻底卸载吗？(y/n): " confirm_un
-                if [[ "$confirm_un" =~ ^[Yy]$ ]]; then
-                    echo -e "${YELLOW}--> 正在卸载 Docker...${RESET}"
-                    # 停止服务
-                    systemctl stop docker >/dev/null 2>&1
-                    systemctl stop docker.socket >/dev/null 2>&1
-                    
-                    # 卸载软件包
-                    apt-get purge -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras
-                    
-                    # 清理残留数据和配置
-                    rm -rf /var/lib/docker
-                    rm -rf /var/lib/containerd
-                    rm -rf /etc/docker
-                    rm -rf /etc/systemd/system/docker.service.d
-                    apt-get autoremove -y
-                    
-                    echo -e "${GREEN}Docker 已彻底卸载，系统已清理干净。${RESET}"
-                fi
-                echo "" && read -n 1 -s -r -p "按任意键返回..."
-                ;;
-            0)
-                return
-                ;;
-            *)
-                echo -e "${RED}输入错误，请重新选择。${RESET}"
-                sleep 1
-                ;;
-        esac
-    done
-}
+check_caddy_installed() { command -v caddy >/dev/null 2>&1; }
+check_port_running() { local p=$1; if ss -tuln | grep -q ":$p "; then echo -e "${GREEN}活跃${RESET}"; else echo -e "${RED}离线${RESET}"; fi }
 
 manage_caddy() {
     while true; do
@@ -781,7 +683,7 @@ menu_security() {
 }
 
 # ==========================================
-# 模块 5：综合安全防御配置 (UFW / F2B / SSH)
+# 测试与探针
 # ==========================================
 run_network_tests() {
     while true; do
@@ -808,9 +710,6 @@ run_network_tests() {
     done
 }
 
-# ==========================================
-# DNS 地址修改工具
-# ==========================================
 set_dns() {
     clear
     echo -e "${CYAN}============= DNS 地址修改工具 =============${RESET}"
@@ -838,7 +737,6 @@ set_dns() {
             [[ -n "$dns2" ]] && dns_content="${dns_content}\nnameserver $dns2"
             ;;
         6)
-            # 恢复用户指定的默认 DNS
             dns_content="nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 2606:4700:4700::1111\nnameserver 2001:4860:4860::8888"
             ;;
         0) return ;;
@@ -846,10 +744,8 @@ set_dns() {
     esac
 
     if [[ -n "$dns_content" ]]; then
-        # 备份并重写 /etc/resolv.conf
         cp /etc/resolv.conf /etc/resolv.conf.bak 2>/dev/null
         echo -e "$dns_content" > /etc/resolv.conf
-        
         echo -e "${GREEN}DNS 配置已更新！${RESET}"
         echo -e "${BLUE}当前配置：${RESET}"
         cat /etc/resolv.conf
@@ -858,7 +754,7 @@ set_dns() {
 }
 
 # ==========================================
-# [3] 实用工具箱 - 增强版 (含 TCPING)
+# [3] 实用工具箱 (剔除 Docker 等纯工具合集)
 # ==========================================
 manage_tools() {
     while true; do
@@ -870,12 +766,11 @@ manage_tools() {
         echo "  4. 动态域名: Cloudflare DDNS (强制同步/卸载)"
         echo "  5. 路由追踪: nexttrace (即时测试/可选卸载)"
         echo "  6. 路由监测: mtr (即时测试/可选卸载)"
-        echo "  7. Docker 引擎管理 (安装/更新/卸载)"
-        echo "  8. 修改系统 DNS 地址"
-        echo "  9. 端口检测: TCPing (即时测试/可选卸载)"
+        echo "  7. 修改系统 DNS 地址"
+        echo "  8. 端口检测: TCPing (即时测试/可选卸载)"
         echo "  0. 返回主菜单"
         echo -e "${MAGENTA}================================================${RESET}"
-        read -p "请选择操作 [0-9]: " tool_choice
+        read -p "请选择操作 [0-8]: " tool_choice
 
         case "$tool_choice" in
             1)
@@ -1056,10 +951,9 @@ manage_tools() {
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
 
-            7) install_docker ;;
-            8) set_dns ;;
+            7) set_dns ;;
             
-            9)
+            8)
                 clear
                 echo -e "${CYAN}========= TCPING 端口检测 =========${RESET}"
                 echo "  1. 运行端口测试 (测试完可选卸载)"
@@ -1077,12 +971,10 @@ manage_tools() {
                             search_pattern="arm64|aarch64"
                         fi
 
-                        # 利用 jq 动态解析最新的真实文件名，避免硬编码因大小写或版本更新导致 404
                         local real_url=$(curl -sL -m 10 "https://api.github.com/repos/pouriyajamshidi/tcping/releases/latest" | jq -r '.assets[].browser_download_url' | grep -i "linux" | grep -E -i "(${search_pattern})" | grep "\.tar\.gz" | head -n 1)
                         
                         if [[ -z "$real_url" || "$real_url" == "null" ]]; then
                             echo -e "${RED}API 解析失败！可能是 GitHub 限流，将自动启用内置备用版本链接...${RESET}"
-                            # 备用版本：硬编码一个绝对准确存在的老版本链接作为兜底
                             if [[ "$sys_arch" == "aarch64" || "$sys_arch" == "arm64" ]]; then
                                 real_url="https://github.com/pouriyajamshidi/tcping/releases/download/v2.4.0/tcping_Linux_ARM64.tar.gz"
                             else
@@ -1090,36 +982,15 @@ manage_tools() {
                             fi
                         fi
                         
-                        # 剥离出基础路径，用于完美的镜像拼接
                         local dl_path=$(echo "$real_url" | awk -F'github.com/' '{print $2}')
-                        
-                        # 构建高可用 GitHub 镜像池
-                        local mirrors=(
-                            "https://ghp.ci/"
-                            "https://ghproxy.cn/"
-                            "https://mirror.ghproxy.com/"
-                            "https://moeyy.cn/gh-proxy/"
-                            "" # 最后一个留空，代表尝试直连
-                        )
+                        local mirrors=("https://ghp.ci/" "https://ghproxy.cn/" "https://mirror.ghproxy.com/" "https://moeyy.cn/gh-proxy/" "")
                         
                         local success=0
                         for proxy in "${mirrors[@]}"; do
-                            if [[ -n "$proxy" ]]; then
-                                echo -e "${BLUE}--> 正在尝试镜像节点: ${proxy}${RESET}"
-                            else
-                                echo -e "${BLUE}--> 正在尝试直连 GitHub...${RESET}"
-                            fi
-                            
-                            # 15秒防卡死，屏蔽错误输出保持界面清爽
+                            if [[ -n "$proxy" ]]; then echo -e "${BLUE}--> 正在尝试镜像节点: ${proxy}${RESET}"; else echo -e "${BLUE}--> 正在尝试直连 GitHub...${RESET}"; fi
                             curl -sL -m 15 "${proxy}https://github.com/${dl_path}" | tar xz -C /usr/local/bin/ >/dev/null 2>&1
                             chmod +x /usr/local/bin/tcping >/dev/null 2>&1
-                            
-                            # 验证命令是否成功安装
-                            if command -v tcping &> /dev/null; then
-                                success=1
-                                echo -e "${GREEN}--> TCPING 二进制文件获取并部署成功！${RESET}"
-                                break
-                            fi
+                            if command -v tcping &> /dev/null; then success=1; echo -e "${GREEN}--> TCPING 二进制文件获取并部署成功！${RESET}"; break; fi
                         done
                         
                         if [ "$success" -eq 0 ]; then
@@ -1134,15 +1005,11 @@ manage_tools() {
                     read -p "请输入监测端口 (默认 443): " tcp_port
                     [[ -z "$tcp_port" ]] && tcp_port=443
                     echo -e "${YELLOW}提示: 测速运行中... 请随时按 Ctrl+C 结束测试${RESET}"
-                    
                     tcping $tcp_target $tcp_port
                     
                     echo -e "${MAGENTA}-----------------------------------${RESET}"
                     read -p "测试完成。是否立即彻底卸载 TCPING 以保持系统纯洁? (y/n): " temp_un
-                    if [[ "$temp_un" =~ ^[Yy]$ ]]; then
-                        rm -f /usr/local/bin/tcping
-                        echo -e "${GREEN}TCPING 已安全移除。${RESET}"
-                    fi
+                    if [[ "$temp_un" =~ ^[Yy]$ ]]; then rm -f /usr/local/bin/tcping; echo -e "${GREEN}TCPING 已安全移除。${RESET}"; fi
                 elif [ "$tcping_ch" == "2" ]; then
                     rm -f /usr/local/bin/tcping
                     echo -e "${GREEN}已彻底卸载 TCPING。${RESET}"
@@ -1152,6 +1019,319 @@ manage_tools() {
         esac
     done
 }
+
+# ==========================================
+# [7] 全新强化模块：Docker 引擎与容器综合管理
+# ==========================================
+install_docker() {
+    while true; do
+        clear
+        echo -e "${CYAN}========= Docker 引擎部署与卸载 =========${RESET}"
+        echo "  1. 部署 Docker 引擎 (官方源)"
+        echo "  2. 强行更新最新版本并重置配置"
+        echo "  3. 彻底卸载 Docker 及清理所有容器数据"
+        echo "  0. 返回上一级"
+        echo -e "${MAGENTA}-----------------------------------------${RESET}"
+        read -p "请选择 [0-3]: " docker_ch
+
+        case "$docker_ch" in
+            1)
+                if ! command -v docker &> /dev/null; then
+                    echo -e "${YELLOW}--> 正在安装 Docker...${RESET}"
+                    curl -fsSL https://get.docker.com | bash -s docker
+                    systemctl enable --now docker
+                    echo -e "${GREEN}Docker 安装完成！${RESET}"
+                else
+                    echo -e "${GREEN}检测到 Docker 已安装。如果需要修复或更新，请使用选项 2。${RESET}"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            2)
+                echo -e "${YELLOW}--> 正在强行更新 Docker 引擎...${RESET}"
+                if command -v docker &> /dev/null; then apt-get update -y && apt-get install -y --only-upgrade docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; else curl -fsSL https://get.docker.com | bash -s docker; fi
+                echo -e "${YELLOW}--> 正在清理旧配置及冲突设置...${RESET}"
+                systemctl stop docker >/dev/null 2>&1
+                if [ -f /etc/docker/daemon.json ]; then mv /etc/docker/daemon.json /etc/docker/daemon.json.bak_$(date +%s); echo -e "${BLUE}已备份旧的 daemon.json。${RESET}"; fi
+                mkdir -p /etc/docker; echo "{}" > /etc/docker/daemon.json
+                if [ -d /etc/systemd/system/docker.service.d ]; then rm -rf /etc/systemd/system/docker.service.d/; echo -e "${BLUE}已清理 systemd 级别的 docker 服务覆盖配置。${RESET}"; fi
+                systemctl daemon-reload && systemctl enable docker && systemctl start docker
+                echo -e "${GREEN}Docker 更新并重置完成！${RESET}"
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            3)
+                echo -e "${RED}警告：这将卸载 Docker 引擎，并删除所有本地容器、镜像、卷和网络配置！${RESET}"
+                read -p "确认要彻底卸载吗？(y/n): " confirm_un
+                if [[ "$confirm_un" =~ ^[Yy]$ ]]; then
+                    echo -e "${YELLOW}--> 正在卸载 Docker...${RESET}"
+                    systemctl stop docker >/dev/null 2>&1; systemctl stop docker.socket >/dev/null 2>&1
+                    apt-get purge -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras
+                    rm -rf /var/lib/docker /var/lib/containerd /etc/docker /etc/systemd/system/docker.service.d
+                    apt-get autoremove -y
+                    echo -e "${GREEN}Docker 已彻底卸载，系统已清理干净。${RESET}"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            0) return ;;
+        esac
+    done
+}
+
+menu_docker_containers() {
+    while true; do
+        clear
+        echo -e "${CYAN}============= 容器操作管理 =============${RESET}"
+        if ! command -v docker &>/dev/null; then echo -e "${RED}未检测到 Docker，请先安装！${RESET}"; sleep 2; return; fi
+        echo -e "  ${YELLOW}--> 当前运行的容器列表：${RESET}"
+        docker ps --format "table {{.ID}}\t{{.Names}}\t{{.Status}}"
+        echo -e "${MAGENTA}----------------------------------------${RESET}"
+        echo "  1. 启动指定容器"
+        echo "  2. 停止指定容器"
+        echo "  3. 重启指定容器"
+        echo "  4. 彻底删除容器 (支持多选)"
+        echo "  5. 进入容器 (exec bash)"
+        echo "  6. 查看容器日志 (logs)"
+        echo "  7. 平滑更新容器镜像 (保留配置拉取最新)"
+        echo "  0. 返回上一级"
+        echo -e "${MAGENTA}========================================${RESET}"
+        read -p "请选择操作 [0-7]: " c_choice
+
+        case "$c_choice" in
+            1) docker ps -a --format "table {{.ID}}\t{{.Names}}\t{{.Status}}"; read -p "输入要启动的容器ID(多选空格分隔): " cids; [[ -n "$cids" ]] && docker start $cids && echo -e "${GREEN}启动成功！${RESET}"; read -n 1 -s -r -p "按任意键返回..." ;;
+            2) read -p "输入要停止的容器ID(多选空格分隔): " cids; [[ -n "$cids" ]] && docker stop $cids && echo -e "${GREEN}已停止！${RESET}"; read -n 1 -s -r -p "按任意键返回..." ;;
+            3) read -p "输入要重启的容器ID(多选空格分隔): " cids; [[ -n "$cids" ]] && docker restart $cids && echo -e "${GREEN}已重启！${RESET}"; read -n 1 -s -r -p "按任意键返回..." ;;
+            4) docker ps -a --format "table {{.ID}}\t{{.Names}}\t{{.Status}}"; read -p "输入要删除的容器ID(多选空格分隔): " cids; [[ -n "$cids" ]] && docker rm -f $cids && echo -e "${GREEN}已删除！${RESET}"; read -n 1 -s -r -p "按任意键返回..." ;;
+            5) read -p "输入容器名称或ID: " cname; [[ -n "$cname" ]] && { docker exec -it "$cname" /bin/bash || docker exec -it "$cname" /bin/sh; }; ;;
+            6) docker ps -a --format "table {{.ID}}\t{{.Names}}\t{{.Status}}"; read -p "输入容器名称或ID: " cname; [[ -n "$cname" ]] && docker logs "$cname"; echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            7) 
+                read -p "请输入要更新的容器ID (前几位即可): " CONTAINER_ID
+                CID=$(docker ps -q --filter "id=$CONTAINER_ID")
+                if [ -n "$CID" ]; then
+                    CNAME=$(docker inspect --format='{{.Name}}' "$CID" | sed 's#^/##')
+                    IMAGE=$(docker inspect --format='{{.Config.Image}}' "$CID")
+                    OLD_IMAGE_ID=$(docker inspect --format='{{.Image}}' "$CID")
+                    echo -e "${GREEN}选中容器: $CNAME (当前镜像: $IMAGE)${RESET}"
+                    IMAGE_TO_PULL="${IMAGE}"
+                    [[ "$IMAGE" != *:* ]] && IMAGE_TO_PULL="${IMAGE}:latest"
+                    
+                    echo -e "${YELLOW}--> 正在拉取最新镜像 $IMAGE_TO_PULL...${RESET}"
+                    PULL_OUTPUT=$(docker pull "$IMAGE_TO_PULL" 2>&1)
+                    echo "$PULL_OUTPUT"
+                    
+                    if echo "$PULL_OUTPUT" | grep -q "Image is up to date"; then
+                        echo -e "${GREEN}镜像已是最新，无需更新！${RESET}"
+                    else
+                        echo -e "${YELLOW}--> 获取原始启动参数并重建容器...${RESET}"
+                        ORIG_CMD=$(docker run --rm -v /var/run/docker.sock:/var/run/docker.sock assaflavie/runlike "$CID")
+                        if [ -n "$ORIG_CMD" ]; then
+                            NEW_CMD=$(echo "$ORIG_CMD" | sed "s|$IMAGE|$IMAGE_TO_PULL|")
+                            docker rm -f "$CID" >/dev/null
+                            eval "$NEW_CMD"
+                            if [ $? -eq 0 ]; then
+                                echo -e "${GREEN}✅ 容器 $CNAME 更新并重启成功！${RESET}"
+                                docker rmi "$OLD_IMAGE_ID" 2>/dev/null
+                            else
+                                echo -e "${RED}启动失败，请检查配置。${RESET}"
+                            fi
+                        else
+                            echo -e "${RED}获取启动参数失败。${RESET}"
+                        fi
+                        docker rmi -f assaflavie/runlike >/dev/null 2>&1
+                    fi
+                else
+                    echo -e "${RED}未找到对应的容器！${RESET}"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            0) return ;;
+        esac
+    done
+}
+
+menu_docker_images() {
+    while true; do
+        clear
+        echo -e "${CYAN}============= 镜像与清理管理 =============${RESET}"
+        if ! command -v docker &>/dev/null; then echo -e "${RED}未检测到 Docker，请先安装！${RESET}"; sleep 2; return; fi
+        echo -e "  ${YELLOW}--> 本地镜像列表：${RESET}"
+        docker images --format "table {{.ID}}\t{{.Repository}}\t{{.Tag}}\t{{.Size}}"
+        echo -e "${MAGENTA}------------------------------------------${RESET}"
+        echo "  1. 删除指定镜像"
+        echo "  2. 深度清理 (删除所有未被使用的镜像/容器/卷)"
+        echo "  0. 返回上一级"
+        echo -e "${MAGENTA}==========================================${RESET}"
+        read -p "请选择操作 [0-2]: " i_choice
+
+        case "$i_choice" in
+            1) read -p "请输入要删除的镜像ID(多选空格分隔): " iids; [[ -n "$iids" ]] && docker rmi -f $iids && echo -e "${GREEN}已删除！${RESET}"; read -n 1 -s -r -p "按任意键返回..." ;;
+            2) 
+                echo -e "${RED}警告：这将删除所有停用的容器、未被使用的网络、无用的镜像以及构建缓存！${RESET}"
+                read -p "确认执行? (y/n): " cf
+                if [[ "$cf" =~ ^[Yy]$ ]]; then
+                    docker system prune -a --volumes -f
+                    echo -e "${GREEN}清理完成！系统空间已释放。${RESET}"
+                fi
+                read -n 1 -s -r -p "按任意键返回..." ;;
+            0) return ;;
+        esac
+    done
+}
+
+menu_docker_config() {
+    while true; do
+        clear
+        echo -e "${CYAN}========= 高级网络配置 (加速与 IPv6) =========${RESET}"
+        if ! command -v docker &>/dev/null; then echo -e "${RED}未检测到 Docker，请先安装！${RESET}"; sleep 2; return; fi
+        
+        daemon_file="/etc/docker/daemon.json"
+        if [ -f "$daemon_file" ]; then
+            current_mirrors=$(jq -r '.["registry-mirrors"] // [] | join("\n    ")' "$daemon_file" 2>/dev/null)
+            ipv6_status=$(jq -r '.ipv6' "$daemon_file" 2>/dev/null)
+        fi
+        
+        echo -e " ${BLUE}当前加速器:${RESET}"
+        [[ -n "$current_mirrors" ]] && echo -e "${GREEN}    $current_mirrors${RESET}" || echo -e "${WHITE}    未配置${RESET}"
+        echo -e " ${BLUE}IPv6 状态 :${RESET} $(if [ "$ipv6_status" == "true" ]; then echo -e "${GREEN}已启用${RESET}"; else echo -e "${YELLOW}未启用${RESET}"; fi)"
+        
+        echo -e "${MAGENTA}----------------------------------------------${RESET}"
+        echo "  1. 添加全局镜像加速器"
+        echo "  2. 清空所有镜像加速器"
+        echo "  3. 启用 Docker 内部 IPv6 支持"
+        echo "  4. 禁用 Docker 内部 IPv6 支持"
+        echo "  5. 重启 Docker 守护进程使修改生效"
+        echo "  0. 返回上一级"
+        echo -e "${MAGENTA}==============================================${RESET}"
+        read -p "请选择操作 [0-5]: " conf_choice
+
+        case "$conf_choice" in
+            1)
+                read -p "请输入加速器地址 (例: https://docker.mirrors.com): " mirror_url
+                if [[ "$mirror_url" == http* ]]; then
+                    temp_file=$(mktemp)
+                    if [ -f "$daemon_file" ]; then
+                        existing_mirrors=$(jq -c '.["registry-mirrors"] // []' "$daemon_file")
+                        jq --argjson mirrors "$(jq -c --argjson existing "$existing_mirrors" --arg url "$mirror_url" '$existing + [$url] | unique' <<< "{}")" '. + {"registry-mirrors": $mirrors}' "$daemon_file" > "$temp_file"
+                    else
+                        jq -n --arg url "$mirror_url" '{"registry-mirrors": [$url]}' > "$temp_file"
+                    fi
+                    mv "$temp_file" "$daemon_file"
+                    echo -e "${GREEN}添加成功！请执行选项 5 重启 Docker 服务生效。${RESET}"
+                else
+                    echo -e "${RED}无效的 URL 地址。${RESET}"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            2)
+                if [ -f "$daemon_file" ]; then
+                    temp_file=$(mktemp)
+                    jq 'del(.["registry-mirrors"])' "$daemon_file" > "$temp_file"
+                    if [ "$(cat "$temp_file")" == "{}" ]; then rm -f "$daemon_file"; else mv "$temp_file" "$daemon_file"; fi
+                    echo -e "${GREEN}加速器已清空！请执行选项 5 重启生效。${RESET}"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            3)
+                read -p "请输入 IPv6 子网 (默认 2001:db8:1::/64): " ipv6_subnet
+                [[ -z "$ipv6_subnet" ]] && ipv6_subnet="2001:db8:1::/64"
+                temp_file=$(mktemp)
+                if [ -f "$daemon_file" ]; then
+                    jq --arg subnet "$ipv6_subnet" '. + {"ipv6": true, "fixed-cidr-v6": $subnet}' "$daemon_file" > "$temp_file"
+                else
+                    echo "{\"ipv6\": true, \"fixed-cidr-v6\": \"$ipv6_subnet\"}" | jq '.' > "$temp_file"
+                fi
+                mv "$temp_file" "$daemon_file"
+                echo -e "${GREEN}IPv6 已配置！请执行选项 5 重启生效。${RESET}"
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            4)
+                if [ -f "$daemon_file" ]; then
+                    temp_file=$(mktemp)
+                    jq 'del(.ipv6) | del(.["fixed-cidr-v6"])' "$daemon_file" > "$temp_file"
+                    if [ "$(cat "$temp_file")" == "{}" ]; then rm -f "$daemon_file"; else mv "$temp_file" "$daemon_file"; fi
+                    echo -e "${GREEN}IPv6 支持已移除！请执行选项 5 重启生效。${RESET}"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            5)
+                echo -e "${YELLOW}--> 正在重启 Docker 服务...${RESET}"
+                systemctl restart docker && echo -e "${GREEN}重启成功，配置已生效！${RESET}" || echo -e "${RED}重启失败！请检查配置文件格式。${RESET}"
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            0) return ;;
+        esac
+    done
+}
+
+menu_docker_watchtower() {
+    while true; do
+        clear
+        echo -e "${CYAN}========= Watchtower 自动更新管理 =========${RESET}"
+        if ! command -v docker &>/dev/null; then echo -e "${RED}未检测到 Docker，请先安装！${RESET}"; sleep 2; return; fi
+        
+        watchtower_id=$(docker ps -a --filter "name=watchtower" --format "{{.ID}}")
+        if [ -n "$watchtower_id" ]; then
+            wt_status=$(docker ps -a --filter "name=watchtower" --format "{{.Status}}")
+            echo -e " ${BLUE}运行状态:${RESET} ${GREEN}已部署 ($wt_status)${RESET}"
+        else
+            echo -e " ${BLUE}运行状态:${RESET} ${YELLOW}未部署${RESET}"
+        fi
+        
+        echo -e "${MAGENTA}-------------------------------------------${RESET}"
+        echo "  1. 部署/重置自动更新 (默认每天凌晨2点清理旧镜像)"
+        echo "  2. 删除 Watchtower 停止自动更新"
+        echo "  3. 立即查看 Watchtower 运行日志"
+        echo "  0. 返回上一级"
+        echo -e "${MAGENTA}===========================================${RESET}"
+        read -p "请选择操作 [0-3]: " wt_choice
+
+        case "$wt_choice" in
+            1)
+                [[ -n "$watchtower_id" ]] && docker rm -f "$watchtower_id" >/dev/null
+                echo -e "${YELLOW}--> 正在启动 Watchtower 容器...${RESET}"
+                docker run -d --name watchtower --restart unless-stopped \
+                    -v /var/run/docker.sock:/var/run/docker.sock \
+                    containrrr/watchtower --schedule "0 0 2 * * *" --cleanup
+                if [ $? -eq 0 ]; then
+                    echo -e "${GREEN}✅ Watchtower 自动更新服务已启动，每天凌晨2点自动更新并清理！${RESET}"
+                else
+                    echo -e "${RED}部署失败！${RESET}"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            2)
+                [[ -n "$watchtower_id" ]] && docker rm -f "$watchtower_id" >/dev/null
+                echo -e "${GREEN}Watchtower 自动更新守护已停止并删除！${RESET}"
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            3)
+                [[ -n "$watchtower_id" ]] && docker logs watchtower || echo -e "${RED}Watchtower 未部署。${RESET}"
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            0) return ;;
+        esac
+    done
+}
+
+menu_docker_main() {
+    while true; do
+        clear
+        echo -e "${CYAN}========= [7] Docker 引擎与容器综合管理 =========${RESET}"
+        if command -v docker &>/dev/null; then 
+            dk_ver=$(docker -v | awk '{print $3}' | tr -d ',')
+            echo -e " ${BLUE}Docker 状态:${RESET} ${GREEN}正常运行 (v$dk_ver)${RESET}"
+        else
+            echo -e " ${BLUE}Docker 状态:${RESET} ${RED}未安装${RESET}"
+        fi
+        echo -e "${MAGENTA}-------------------------------------------------${RESET}"
+        echo "  1. 引擎管理: Docker 部署 / 强行升级 / 彻底卸载"
+        echo "  2. 容器管家: 启动 / 停止 / 查看日志 / 平滑更新镜像"
+        echo "  3. 镜像清理: 查看镜像 / 删除特定镜像 / 系统空间释放"
+        echo "  4. 网络进阶: 全局镜像加速器 (Mirror) / IPv6 赋能"
+        echo "  5. 自动维护: Watchtower 自动更新巡检配置"
+        echo "  0. 返回主菜单"
+        echo -e "${MAGENTA}=================================================${RESET}"
+        read -p "请选择操作 [0-5]: " d_main_choice
+
+        case "$d_main_choice" in
+            1) install_docker ;;
+            2) menu_docker_containers ;;
+            3) menu_docker_images ;;
+            4) menu_docker_config ;;
+            5) menu_docker_watchtower ;;
+            0) return ;;
+            *) echo -e "${RED}无效选择${RESET}" && sleep 1 ;;
+        esac
+    done
+}
+
 
 # ==========================================
 # 主菜单 (硬件探针与全能看板)
@@ -1171,7 +1351,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
@@ -1187,10 +1367,11 @@ main_menu() {
         echo -e "${MAGENTA}---------------------------------------------------------${RESET}"
         echo -e "  ${YELLOW}1.${RESET} 系统基础设置 (主机名 / Swap / IPv6)"
         echo -e "  ${YELLOW}2.${RESET} 节点创建与反代 (Shoes / Caddy)"
-        echo -e "  ${YELLOW}3.${RESET} 实用工具箱 (Docker / 测速 / DDNS)"
+        echo -e "  ${YELLOW}3.${RESET} 实用工具箱 (测速 / DDNS / 网络探针)"
         echo -e "  ${YELLOW}4.${RESET} 综合安全防御配置 (UFW / F2B / SSH)"
         echo -e "  ${YELLOW}5.${RESET} 内核安装与清理 (防篡改)"
         echo -e "  ${YELLOW}6.${RESET} 综合测试脚本合集 (NQ / 解锁 / SSD / IP质量)"
+        echo -e "  ${YELLOW}7.${RESET} Docker 引擎与容器综合管理"
         echo -e "  ${RED}9.${RESET} 重启服务器 (Reboot)"
         echo -e "  ${WHITE}0.${RESET} 退出脚本"
         echo -e "${MAGENTA}=========================================================${RESET}"
@@ -1203,6 +1384,7 @@ main_menu() {
             4) menu_security ;;
             5) manage_kernel ;;
             6) run_network_tests ;;
+            7) menu_docker_main ;;
             9) echo -e "${RED}正在重启...${RESET}"; reboot ;;
             0) exit 0 ;;
             *) sleep 1 ;;
