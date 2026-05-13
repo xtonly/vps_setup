@@ -16,7 +16,8 @@ apt update -y && apt install -y wget curl && wget --no-check-certificate -O vps_
 界面截图
 
 
-<img width="475" height="480" alt="image" src="https://github.com/user-attachments/assets/f7f048fb-a153-4b6f-bff0-8272154acd89" />
+<img width="481" height="492" alt="image" src="https://github.com/user-attachments/assets/ec5f40fb-86c7-4923-8141-a31d7a6f8d50" />
+
 
 
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
