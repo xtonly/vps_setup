@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.1 终极版)
+# VPS 综合初始化与管理工具 (5.0 终极版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # ========================================================
 
@@ -1026,12 +1026,12 @@ manage_tools() {
 install_docker() {
     while true; do
         clear
-        echo -e "${CYAN}========= Docker 引擎部署与卸载 =========${RESET}"
+        echo -e "${CYAN}============ Docker 引擎部署与卸载 ============${RESET}"
         echo "  1. 部署 Docker 引擎 (官方源)"
         echo "  2. 强行更新最新版本并重置配置"
         echo "  3. 彻底卸载 Docker 及清理所有容器数据"
         echo "  0. 返回上一级"
-        echo -e "${MAGENTA}-----------------------------------------${RESET}"
+        echo -e "${MAGENTA}-----------------------------------------------${RESET}"
         read -p "请选择 [0-3]: " docker_ch
 
         case "$docker_ch" in
@@ -1076,11 +1076,11 @@ install_docker() {
 menu_docker_containers() {
     while true; do
         clear
-        echo -e "${CYAN}============= 容器操作管理 =============${RESET}"
+        echo -e "${CYAN}================ 容器操作管理 ================${RESET}"
         if ! command -v docker &>/dev/null; then echo -e "${RED}未检测到 Docker，请先安装！${RESET}"; sleep 2; return; fi
         echo -e "  ${YELLOW}--> 当前运行的容器列表：${RESET}"
         docker ps --format "table {{.ID}}\t{{.Names}}\t{{.Status}}"
-        echo -e "${MAGENTA}----------------------------------------${RESET}"
+        echo -e "${MAGENTA}----------------------------------------------${RESET}"
         echo "  1. 启动指定容器"
         echo "  2. 停止指定容器"
         echo "  3. 重启指定容器"
@@ -1089,7 +1089,7 @@ menu_docker_containers() {
         echo "  6. 查看容器日志 (logs)"
         echo "  7. 平滑更新容器镜像 (保留配置拉取最新)"
         echo "  0. 返回上一级"
-        echo -e "${MAGENTA}========================================${RESET}"
+        echo -e "${MAGENTA}==============================================${RESET}"
         read -p "请选择操作 [0-7]: " c_choice
 
         case "$c_choice" in
@@ -1147,7 +1147,7 @@ menu_docker_containers() {
 menu_docker_images() {
     while true; do
         clear
-        echo -e "${CYAN}============= 镜像与清理管理 =============${RESET}"
+        echo -e "${CYAN}================ 镜像与清理管理 ================${RESET}"
         if ! command -v docker &>/dev/null; then echo -e "${RED}未检测到 Docker，请先安装！${RESET}"; sleep 2; return; fi
         echo -e "  ${YELLOW}--> 本地镜像列表：${RESET}"
         docker images --format "table {{.ID}}\t{{.Repository}}\t{{.Tag}}\t{{.Size}}"
@@ -1155,7 +1155,7 @@ menu_docker_images() {
         echo "  1. 删除指定镜像"
         echo "  2. 深度清理 (删除所有未被使用的镜像/容器/卷)"
         echo "  0. 返回上一级"
-        echo -e "${MAGENTA}==========================================${RESET}"
+        echo -e "${MAGENTA}================================================${RESET}"
         read -p "请选择操作 [0-2]: " i_choice
 
         case "$i_choice" in
@@ -1176,7 +1176,7 @@ menu_docker_images() {
 menu_docker_config() {
     while true; do
         clear
-        echo -e "${CYAN}========= 高级网络配置 (加速与 IPv6) =========${RESET}"
+        echo -e "${CYAN}============ 高级网络配置 (加速与 IPv6) ============${RESET}"
         if ! command -v docker &>/dev/null; then echo -e "${RED}未检测到 Docker，请先安装！${RESET}"; sleep 2; return; fi
         
         daemon_file="/etc/docker/daemon.json"
@@ -1189,8 +1189,8 @@ menu_docker_config() {
         [[ -n "$current_mirrors" ]] && echo -e "${GREEN}    $current_mirrors${RESET}" || echo -e "${WHITE}    未配置${RESET}"
         echo -e " ${BLUE}IPv6 状态 :${RESET} $(if [ "$ipv6_status" == "true" ]; then echo -e "${GREEN}已启用${RESET}"; else echo -e "${YELLOW}未启用${RESET}"; fi)"
         
-        echo -e "${MAGENTA}----------------------------------------------${RESET}"
-        echo "  1. 添加全局镜像加速器"
+        echo -e "${MAGENTA}----------------------------------------------------${RESET}"
+        echo "  1. 添加全局镜像加速器 (内置多地域源)"
         echo "  2. 清空所有镜像加速器"
         echo "  3. 启用 Docker 内部 IPv6 支持"
         echo "  4. 禁用 Docker 内部 IPv6 支持"
@@ -1201,7 +1201,35 @@ menu_docker_config() {
 
         case "$conf_choice" in
             1)
-                read -p "请输入加速器地址 (例: https://docker.mirrors.com): " mirror_url
+                clear
+                echo -e "${CYAN}============ 添加 Docker 镜像加速源 ============${RESET}"
+                echo -e " ${YELLOW}提示: 国内机推荐腾讯/网易，海外机推荐 Google GCR${RESET}"
+                echo -e "${MAGENTA}------------------------------------------------${RESET}"
+                echo "  1. [中国大陆] 腾讯云公共源 (Tencent)"
+                echo "  2. [中国大陆] 网易公共源 (163)"
+                echo "  3. [中国大陆] 阿里云公共源 (Aliyun)"
+                echo "  4. [美欧日等] Google GCR 源 (推荐海外使用)"
+                echo "  5. [全    球] Docker 官方直连源"
+                echo "  6. [自 定 义] 手动输入加速源 URL"
+                echo "  0. 取消并返回上一级"
+                echo -e "${MAGENTA}================================================${RESET}"
+                read -p "请选择加速源 [0-6]: " mirror_sel
+
+                local mirror_url=""
+                case "$mirror_sel" in
+                    1) mirror_url="https://mirror.ccs.tencentyun.com" ;;
+                    2) mirror_url="https://hub-mirror.c.163.com" ;;
+                    3) mirror_url="https://registry.cn-hangzhou.aliyuncs.com" ;;
+                    4) mirror_url="https://mirror.gcr.io" ;;
+                    5) mirror_url="https://registry-1.docker.io" ;;
+                    6) 
+                        read -p "请输入自定义加速器地址 (例: https://docker.mirrors.com): " custom_url
+                        mirror_url="$custom_url"
+                        ;;
+                    0) continue ;;
+                    *) echo -e "${RED}无效选择${RESET}"; sleep 1; continue ;;
+                esac
+
                 if [[ "$mirror_url" == http* ]]; then
                     temp_file=$(mktemp)
                     if [ -f "$daemon_file" ]; then
@@ -1211,7 +1239,8 @@ menu_docker_config() {
                         jq -n --arg url "$mirror_url" '{"registry-mirrors": [$url]}' > "$temp_file"
                     fi
                     mv "$temp_file" "$daemon_file"
-                    echo -e "${GREEN}添加成功！请执行选项 5 重启 Docker 服务生效。${RESET}"
+                    echo -e "${GREEN}加速源 [$mirror_url] 添加成功！${RESET}"
+                    echo -e "${YELLOW}请记得执行选项 5 重启 Docker 服务以生效。${RESET}"
                 else
                     echo -e "${RED}无效的 URL 地址。${RESET}"
                 fi
@@ -1256,7 +1285,7 @@ menu_docker_config() {
 menu_docker_watchtower() {
     while true; do
         clear
-        echo -e "${CYAN}========= Watchtower 自动更新管理 =========${RESET}"
+        echo -e "${CYAN}============ Watchtower 自动更新管理 ============${RESET}"
         if ! command -v docker &>/dev/null; then echo -e "${RED}未检测到 Docker，请先安装！${RESET}"; sleep 2; return; fi
         
         watchtower_id=$(docker ps -a --filter "name=watchtower" --format "{{.ID}}")
@@ -1267,12 +1296,12 @@ menu_docker_watchtower() {
             echo -e " ${BLUE}运行状态:${RESET} ${YELLOW}未部署${RESET}"
         fi
         
-        echo -e "${MAGENTA}-------------------------------------------${RESET}"
+        echo -e "${MAGENTA}-------------------------------------------------${RESET}"
         echo "  1. 部署/重置自动更新 (默认每天凌晨2点清理旧镜像)"
         echo "  2. 删除 Watchtower 停止自动更新"
         echo "  3. 立即查看 Watchtower 运行日志"
         echo "  0. 返回上一级"
-        echo -e "${MAGENTA}===========================================${RESET}"
+        echo -e "${MAGENTA}=================================================${RESET}"
         read -p "请选择操作 [0-3]: " wt_choice
 
         case "$wt_choice" in
@@ -1303,21 +1332,21 @@ menu_docker_watchtower() {
 menu_docker_main() {
     while true; do
         clear
-        echo -e "${CYAN}========= [7] Docker 引擎与容器综合管理 =========${RESET}"
+        echo -e "${CYAN}================= [7] Docker 综合管理 =================${RESET}"
         if command -v docker &>/dev/null; then 
             dk_ver=$(docker -v | awk '{print $3}' | tr -d ',')
             echo -e " ${BLUE}Docker 状态:${RESET} ${GREEN}正常运行 (v$dk_ver)${RESET}"
         else
             echo -e " ${BLUE}Docker 状态:${RESET} ${RED}未安装${RESET}"
         fi
-        echo -e "${MAGENTA}-------------------------------------------------${RESET}"
+        echo -e "${MAGENTA}-------------------------------------------------------${RESET}"
         echo "  1. 引擎管理: Docker 部署 / 强行升级 / 彻底卸载"
         echo "  2. 容器管家: 启动 / 停止 / 查看日志 / 平滑更新镜像"
         echo "  3. 镜像清理: 查看镜像 / 删除特定镜像 / 系统空间释放"
         echo "  4. 网络进阶: 全局镜像加速器 (Mirror) / IPv6 赋能"
         echo "  5. 自动维护: Watchtower 自动更新巡检配置"
         echo "  0. 返回主菜单"
-        echo -e "${MAGENTA}=================================================${RESET}"
+        echo -e "${MAGENTA}=======================================================${RESET}"
         read -p "请选择操作 [0-5]: " d_main_choice
 
         case "$d_main_choice" in
@@ -1351,7 +1380,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
@@ -1371,7 +1400,7 @@ main_menu() {
         echo -e "  ${YELLOW}4.${RESET} 综合安全防御配置 (UFW / F2B / SSH)"
         echo -e "  ${YELLOW}5.${RESET} 内核安装与清理 (防篡改)"
         echo -e "  ${YELLOW}6.${RESET} 综合测试脚本合集 (NQ / 解锁 / SSD / IP质量)"
-        echo -e "  ${YELLOW}7.${RESET} Docker 引擎与容器综合管理"
+        echo -e "  ${YELLOW}7.${RESET} Docker 综合管理"
         echo -e "  ${RED}9.${RESET} 重启服务器 (Reboot)"
         echo -e "  ${WHITE}0.${RESET} 退出脚本"
         echo -e "${MAGENTA}=========================================================${RESET}"
