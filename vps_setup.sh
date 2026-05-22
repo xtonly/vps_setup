@@ -768,9 +768,11 @@ manage_tools() {
         echo "  6. 路由监测: mtr (即时测试/可选卸载)"
         echo "  7. 修改系统 DNS 地址"
         echo "  8. 端口检测: TCPing (即时测试/可选卸载)"
+        echo "  9. 路由追踪: e-BestTrace (增强版路由分析)"
+        echo "  10. 流量监控: e-Traffic (网卡流量探针)"
         echo "  0. 返回主菜单"
         echo -e "${MAGENTA}================================================${RESET}"
-        read -p "请选择操作 [0-8]: " tool_choice
+        read -p "请选择操作 [0-10]: " tool_choice
 
         case "$tool_choice" in
             1)
@@ -1015,7 +1017,23 @@ manage_tools() {
                     echo -e "${GREEN}已彻底卸载 TCPING。${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            
+            9)
+                clear
+                echo -e "${CYAN}========= e-BestTrace 路由追踪 =========${RESET}"
+                echo -e "${YELLOW}--> 正在运行 e-BestTrace...${RESET}"
+                wget --no-check-certificate -O e-BestTrace.sh https://raw.githubusercontent.com/xtonly/e-BestTrace/refs/heads/main/e-BestTrace.sh && chmod +x e-BestTrace.sh && ./e-BestTrace.sh
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+                
+            10)
+                clear
+                echo -e "${CYAN}========= e-Traffic 流量监控 =========${RESET}"
+                echo -e "${YELLOW}--> 正在运行 e-Traffic...${RESET}"
+                wget --no-check-certificate -O eTraffic.sh https://raw.githubusercontent.com/xtonly/e-Traffic/refs/heads/main/eTraffic.sh && chmod +x eTraffic.sh && ./eTraffic.sh
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+
             0) return ;;
+            *) echo -e "${RED}无效的选择！${RESET}" && sleep 1 ;;
         esac
     done
 }
