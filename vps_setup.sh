@@ -485,7 +485,7 @@ menu_services() {
         echo "  1. 部署 E-Shoes 代理节点 (SS2022/Reality/Anytls)"
         echo "  2. 部署 EasyCaddy 反向代理系统"
         echo "  0. 返回主菜单"
-        echo -e "${MAGENTA}==================================================${RESET}"
+        echo -e "${MAGENTA}====================================================${RESET}"
         read -p "请选择: " choice
         case "$choice" in
             1) run_eshoes ;;
