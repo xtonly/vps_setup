@@ -1335,10 +1335,18 @@ menu_docker_watchtower() {
         case "$wt_choice" in
             1)
                 [[ -n "$watchtower_id" ]] && docker rm -f "$watchtower_id" >/dev/null
-                echo -e "${YELLOW}--> 正在启动 Watchtower 容器...${RESET}"
+                echo -e "${YELLOW}--> 正在拉取最新版 Watchtower 镜像...${RESET}"
+                docker pull containrrr/watchtower:latest >/dev/null 2>&1
+                
+                echo -e "${YELLOW}--> 正在探测并适配宿主机 Docker API 版本...${RESET}"
+                DOCKER_API=$(docker version --format '{{.Server.APIVersion}}' 2>/dev/null || echo "1.41")
+                
+                echo -e "${YELLOW}--> 正在启动 Watchtower 容器 (API: $DOCKER_API)...${RESET}"
                 docker run -d --name watchtower --restart unless-stopped \
+                    -e DOCKER_API_VERSION=$DOCKER_API \
                     -v /var/run/docker.sock:/var/run/docker.sock \
                     containrrr/watchtower --schedule "0 0 2 * * *" --cleanup
+                    
                 if [ $? -eq 0 ]; then
                     echo -e "${GREEN}✅ Watchtower 自动更新服务已启动，每天凌晨2点自动更新并清理！${RESET}"
                 else
