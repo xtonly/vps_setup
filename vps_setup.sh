@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.1 终极版)
+# VPS 综合初始化与管理工具 (5.0 终极版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # ========================================================
 
@@ -435,10 +435,19 @@ manage_caddy() {
                 if [[ -n "$domain" && -n "$port" ]]; then
                     upstream="http://127.0.0.1:${port}"
                     [[ ! -f "$BACKUP_CADDYFILE" ]] && cp "$CADDYFILE" "$BACKUP_CADDYFILE"
-                    echo "${domain} { reverse_proxy ${upstream} }" >> "$CADDYFILE"
+                    
+                    # 使用符合 Caddy V2 规范的多行格式写入
+                    echo -e "\n${domain} {\n    reverse_proxy ${upstream}\n}" >> "$CADDYFILE"
                     echo "${domain} -> ${upstream}" >> "$PROXY_CONFIG_FILE"
+                    
                     systemctl restart caddy
-                    echo -e "${GREEN}代理已添加: ${domain} -> ${upstream}${RESET}"
+                    
+                    # 增加重启状态校验机制
+                    if systemctl is-active --quiet caddy; then
+                        echo -e "${GREEN}代理已添加并成功生效: ${domain} -> ${upstream}${RESET}"
+                    else
+                        echo -e "${RED}Caddy 重启失败！可能是域名 (${domain}) 未正确解析到本机 IP，请检查！${RESET}"
+                    fi
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             3)
@@ -462,10 +471,11 @@ manage_caddy() {
                         while IFS= read -r line; do
                             d=$(echo "$line" | awk -F' -> ' '{print $1}')
                             u=$(echo "$line" | awk -F' -> ' '{print $2}')
-                            echo "${d} { reverse_proxy ${u} }" >> "$CADDYFILE"
+                            # 重建时同样使用多行规范格式
+                            echo -e "\n${d} {\n    reverse_proxy ${u}\n}" >> "$CADDYFILE"
                         done < "$PROXY_CONFIG_FILE"
                         systemctl restart caddy
-                        echo -e "${GREEN}已删除！${RESET}"
+                        echo -e "${GREEN}已删除并刷新配置！${RESET}"
                     fi
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
@@ -1398,7 +1408,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
