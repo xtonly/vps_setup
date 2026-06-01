@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.1 终极版)
+# VPS 综合初始化与管理工具 (5.0 终极版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # ========================================================
 
@@ -861,7 +861,6 @@ manage_tools() {
                         apt-get purge -y speedtest-cli >/dev/null 2>&1
                     fi
                     
-                    # 规范化安装 Ookla 官方包
                     if ! command -v speedtest &> /dev/null; then
                         echo -e "${YELLOW}--> 正在安装 Ookla 官方源与证书...${RESET}"
                         apt-get update -y >/dev/null 2>&1
@@ -872,13 +871,17 @@ manage_tools() {
                     clear
                     
                     echo -e "${YELLOW}--> 正在运行官方测速...${RESET}"
-                    # 核心修复：自动同意 GDPR 协议，并优先尝试强行走 IPv4 避免 DNS 解析黑洞
-                    if speedtest --accept-license --accept-gdpr -4; then
-                        echo -e "${GREEN}测速顺利完成！${RESET}"
-                    else
-                        echo -e "${RED}IPv4 测速异常，尝试常规双栈模式...${RESET}"
-                        speedtest --accept-license --accept-gdpr
-                    fi
+                    
+                    # 终极修复方案：临时劫持 DNS 为公共稳定 DNS，解决官方客户端解析黑洞问题
+                    cp /etc/resolv.conf /etc/resolv.conf.bak_speedtest 2>/dev/null
+                    echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" > /etc/resolv.conf
+                    
+                    # 静默同意协议并测速
+                    speedtest --accept-license --accept-gdpr
+                    
+                    # 测速完成后立即恢复系统原有的 DNS
+                    cat /etc/resolv.conf.bak_speedtest > /etc/resolv.conf
+                    rm -f /etc/resolv.conf.bak_speedtest
                     
                     echo -e "${MAGENTA}-------------------------------------${RESET}"
                     read -p "测试完成。是否立即彻底卸载工具? (y/n): " temp_un
@@ -1435,7 +1438,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
