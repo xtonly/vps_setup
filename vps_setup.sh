@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.0 终极版)
+# VPS 综合初始化与管理工具 (5.1 终极版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # ========================================================
 
@@ -856,23 +856,42 @@ manage_tools() {
                 echo -e "${MAGENTA}-------------------------------------${RESET}"
                 read -p "请选择: " sp_ch
                 if [ "$sp_ch" == "1" ]; then
+                    # 强力清理可能冲突的 Python 版
+                    if dpkg -l | grep -qw speedtest-cli; then
+                        apt-get purge -y speedtest-cli >/dev/null 2>&1
+                    fi
+                    
+                    # 规范化安装 Ookla 官方包
                     if ! command -v speedtest &> /dev/null; then
-                        echo -e "${YELLOW}--> 正在安装 Ookla 官方源...${RESET}"
-                        curl -sL https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | sudo bash
-                        apt install speedtest -y
+                        echo -e "${YELLOW}--> 正在安装 Ookla 官方源与证书...${RESET}"
+                        apt-get update -y >/dev/null 2>&1
+                        apt-get install -y curl ca-certificates
+                        curl -sL https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash
+                        apt-get install -y speedtest
                     fi
                     clear
-                    speedtest
+                    
+                    echo -e "${YELLOW}--> 正在运行官方测速...${RESET}"
+                    # 核心修复：自动同意 GDPR 协议，并优先尝试强行走 IPv4 避免 DNS 解析黑洞
+                    if speedtest --accept-license --accept-gdpr -4; then
+                        echo -e "${GREEN}测速顺利完成！${RESET}"
+                    else
+                        echo -e "${RED}IPv4 测速异常，尝试常规双栈模式...${RESET}"
+                        speedtest --accept-license --accept-gdpr
+                    fi
+                    
                     echo -e "${MAGENTA}-------------------------------------${RESET}"
-                    read -p "测试完成。是否立即卸载工具? (y/n): " temp_un
+                    read -p "测试完成。是否立即彻底卸载工具? (y/n): " temp_un
                     if [[ "$temp_un" =~ ^[Yy]$ ]]; then
-                        apt-get purge -y speedtest && apt-get -y autoremove
-                        echo -e "${GREEN}工具已移除。${RESET}"
+                        apt-get purge -y speedtest >/dev/null 2>&1
+                        rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
+                        apt-get -y autoremove >/dev/null 2>&1
+                        echo -e "${GREEN}官方测速工具已安全移除。${RESET}"
                     fi
                 elif [ "$sp_ch" == "2" ]; then
                     apt-get purge -y speedtest speedtest-cli >/dev/null 2>&1
                     rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
-                    apt-get -y autoremove
+                    apt-get -y autoremove >/dev/null 2>&1
                     echo -e "${GREEN}已彻底移除。${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
@@ -1416,7 +1435,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
