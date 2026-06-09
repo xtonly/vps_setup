@@ -872,16 +872,8 @@ manage_tools() {
                     
                     echo -e "${YELLOW}--> 正在运行官方测速...${RESET}"
                     
-                    # 终极修复方案：临时劫持 DNS 为公共稳定 DNS，解决官方客户端解析黑洞问题
-                    cp /etc/resolv.conf /etc/resolv.conf.bak_speedtest 2>/dev/null
-                    echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" > /etc/resolv.conf
-                    
-                    # 静默同意协议并测速
-                    speedtest --accept-license --accept-gdpr
-                    
-                    # 测速完成后立即恢复系统原有的 DNS
-                    cat /etc/resolv.conf.bak_speedtest > /etc/resolv.conf
-                    rm -f /etc/resolv.conf.bak_speedtest
+                    # 运行官方测速 (已移除强制DNS劫持，并将干扰视线的报错丢弃到黑洞)
+                    speedtest --accept-license --accept-gdpr 2> /dev/null
                     
                     echo -e "${MAGENTA}-------------------------------------${RESET}"
                     read -p "测试完成。是否立即彻底卸载工具? (y/n): " temp_un
