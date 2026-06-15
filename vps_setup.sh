@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.0 终极纯净版)
+# VPS 综合初始化与管理工具 (5.1 终极纯净版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # 修复：去除 Ookla Speedtest 强制 DNS 劫持，适配原生优质网络
 # ========================================================
@@ -863,17 +863,30 @@ manage_tools() {
                     fi
                     
                     if ! command -v speedtest &> /dev/null; then
-                        echo -e "${YELLOW}--> 正在安装 Ookla 官方源与证书...${RESET}"
+                        echo -e "${YELLOW}--> 正在安装 Ookla 官方测速核心...${RESET}"
                         apt-get update -y >/dev/null 2>&1
-                        apt-get install -y curl ca-certificates
-                        curl -sL https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash
-                        apt-get install -y speedtest
+                        apt-get install -y curl ca-certificates >/dev/null 2>&1
+                        
+                        # 核心修复：仅当源文件不存在时才去请求官方脚本，防止被 API 拦截
+                        if [ ! -f "/etc/apt/sources.list.d/ookla_speedtest-cli.list" ]; then
+                            curl -sL https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash >/dev/null 2>&1
+                        fi
+                        
+                        apt-get update -y >/dev/null 2>&1
+                        apt-get install -y speedtest >/dev/null 2>&1
+                        hash -r # 刷新系统的命令缓存
                     fi
+                    
                     clear
+                    # 二次校验拦截：如果真的由于网络原因安装失败，优雅退出而不是爆红字报错
+                    if ! command -v speedtest &> /dev/null; then
+                        echo -e "${RED}严重错误：Speedtest 核心安装失败！请检查您的网络是否能正常访问 packagecloud.io。${RESET}"
+                        echo "" && read -n 1 -s -r -p "按任意键返回..."
+                        continue
+                    fi
                     
                     echo -e "${YELLOW}--> 正在运行官方测速...${RESET}"
                     
-                    # 【核心修复】：已彻底删除画蛇添足的 DNS 劫持代码
                     # 直接原生运行，享受机器原本的完美网络
                     speedtest --accept-license --accept-gdpr
                     
@@ -881,15 +894,18 @@ manage_tools() {
                     read -p "测试完成。是否立即彻底卸载工具? (y/n): " temp_un
                     if [[ "$temp_un" =~ ^[Yy]$ ]]; then
                         apt-get purge -y speedtest >/dev/null 2>&1
-                        rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
+                        # 核心修复：不删除官方源配置！下次再测速直接极速拉取，绝不报错
                         apt-get -y autoremove >/dev/null 2>&1
-                        echo -e "${GREEN}官方测速工具已安全移除。${RESET}"
+                        hash -r
+                        echo -e "${GREEN}官方测速工具已安全移除（源配置已保留以备下次极速调用）。${RESET}"
                     fi
                 elif [ "$sp_ch" == "2" ]; then
+                    # 只有在这里，用户明确要求连源一起删，才彻底清理干净
                     apt-get purge -y speedtest speedtest-cli >/dev/null 2>&1
                     rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
                     apt-get -y autoremove >/dev/null 2>&1
-                    echo -e "${GREEN}已彻底移除。${RESET}"
+                    hash -r
+                    echo -e "${GREEN}已彻底移除 (包含软件源)。${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
 
@@ -1432,7 +1448,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
