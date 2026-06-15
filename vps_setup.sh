@@ -849,47 +849,45 @@ manage_tools() {
 
             3)
                 clear
-                echo -e "${CYAN}========= Speedtest 稳定版测速 =========${RESET}"
-                echo "  1. 立即运行测速 (安全无依赖版)"
-                echo "  2. 彻底卸载历史残留的测速工具"
+                echo -e "${CYAN}========= Speedtest 官方测速 =========${RESET}"
+                echo "  1. 立即运行测试 (测试完可选卸载)"
+                echo "  2. 彻底卸载 Speedtest (含软件源)"
                 echo "  0. 返回上一级"
                 echo -e "${MAGENTA}-------------------------------------${RESET}"
                 read -p "请选择: " sp_ch
                 if [ "$sp_ch" == "1" ]; then
-                    echo -e "${YELLOW}--> 正在拉取稳定测速核心...${RESET}"
-                    
-                    # 使用轻量级、无环境依赖的 Go 语言版 Speedtest CLI（完美绕过官方版的各种诡异 Bug）
-                    if [ ! -f "/usr/local/bin/speedtest-go" ]; then
-                        sys_arch=$(uname -m)
-                        if [[ "$sys_arch" == "aarch64" || "$sys_arch" == "arm64" ]]; then
-                            dl_url="https://github.com/showwin/speedtest-go/releases/download/v1.7.9/speedtest-go_1.7.9_Linux_arm64.tar.gz"
-                        else
-                            dl_url="https://github.com/showwin/speedtest-go/releases/download/v1.7.9/speedtest-go_1.7.9_Linux_x86_64.tar.gz"
-                        fi
-                        curl -sL "$dl_url" | tar xz -C /usr/local/bin/ speedtest-go
-                        chmod +x /usr/local/bin/speedtest-go
+                    # 强力清理可能冲突的 Python 版
+                    if dpkg -l | grep -qw speedtest-cli; then
+                        apt-get purge -y speedtest-cli >/dev/null 2>&1
                     fi
                     
+                    if ! command -v speedtest &> /dev/null; then
+                        echo -e "${YELLOW}--> 正在安装 Ookla 官方源与证书...${RESET}"
+                        apt-get update -y >/dev/null 2>&1
+                        apt-get install -y curl ca-certificates
+                        curl -sL https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash
+                        apt-get install -y speedtest
+                    fi
                     clear
-                    echo -e "${YELLOW}--> 正在运行测速...${RESET}"
-                    echo -e "${MAGENTA}-------------------------------------${RESET}"
                     
-                    # 直接运行测速，无视任何系统 DNS 阻截
-                    /usr/local/bin/speedtest-go
+                    echo -e "${YELLOW}--> 正在运行官方测速...${RESET}"
+                    
+                    # 运行官方测速 (已移除强制DNS劫持，并将干扰视线的报错丢弃到黑洞)
+                    speedtest --accept-license --accept-gdpr 2> /dev/null
                     
                     echo -e "${MAGENTA}-------------------------------------${RESET}"
-                    read -p "测试完成。是否立即卸载以保持纯净? (y/n): " temp_un
+                    read -p "测试完成。是否立即彻底卸载工具? (y/n): " temp_un
                     if [[ "$temp_un" =~ ^[Yy]$ ]]; then
-                        rm -f /usr/local/bin/speedtest-go
-                        echo -e "${GREEN}测速核心已移除。${RESET}"
+                        apt-get purge -y speedtest >/dev/null 2>&1
+                        rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
+                        apt-get -y autoremove >/dev/null 2>&1
+                        echo -e "${GREEN}官方测速工具已安全移除。${RESET}"
                     fi
                 elif [ "$sp_ch" == "2" ]; then
-                    # 强力清理一切历史可能存在的垃圾
                     apt-get purge -y speedtest speedtest-cli >/dev/null 2>&1
                     rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
-                    rm -f /usr/local/bin/speedtest-go
                     apt-get -y autoremove >/dev/null 2>&1
-                    echo -e "${GREEN}已彻底清理所有历史测速工具残留。${RESET}"
+                    echo -e "${GREEN}已彻底移除。${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
 
