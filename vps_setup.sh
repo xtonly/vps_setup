@@ -872,8 +872,16 @@ manage_tools() {
                     
                     echo -e "${YELLOW}--> 正在运行官方测速...${RESET}"
                     
-                    # 运行官方测速 (已移除强制DNS劫持，并将干扰视线的报错丢弃到黑洞)
+                    # 1. 临时备份并替换为公共 DNS，解决 Ookla 域名无法解析的问题
+                    cp /etc/resolv.conf /etc/resolv.conf.bak_speedtest 2>/dev/null
+                    echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" > /etc/resolv.conf
+                    
+                    # 2. 运行测速，并把所有烦人的 [error] 报错丢进黑洞 (2> /dev/null)
                     speedtest --accept-license --accept-gdpr 2> /dev/null
+                    
+                    # 3. 测速刚一结束，立刻光速恢复为你原本自带的 API DNS！绝不影响你的业务
+                    cat /etc/resolv.conf.bak_speedtest > /etc/resolv.conf
+                    rm -f /etc/resolv.conf.bak_speedtest
                     
                     echo -e "${MAGENTA}-------------------------------------${RESET}"
                     read -p "测试完成。是否立即彻底卸载工具? (y/n): " temp_un
