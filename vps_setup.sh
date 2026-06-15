@@ -1,8 +1,9 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.1 终极版)
+# VPS 综合初始化与管理工具 (5.0 终极纯净版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
+# 修复：去除 Ookla Speedtest 强制 DNS 劫持，适配原生优质网络
 # ========================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -872,8 +873,9 @@ manage_tools() {
                     
                     echo -e "${YELLOW}--> 正在运行官方测速...${RESET}"
                     
-                    # 运行官方测速 (已移除强制DNS劫持，并将干扰视线的报错丢弃到黑洞)
-                    speedtest --accept-license --accept-gdpr 2> /dev/null
+                    # 【核心修复】：已彻底删除画蛇添足的 DNS 劫持代码
+                    # 直接原生运行，享受机器原本的完美网络
+                    speedtest --accept-license --accept-gdpr
                     
                     echo -e "${MAGENTA}-------------------------------------${RESET}"
                     read -p "测试完成。是否立即彻底卸载工具? (y/n): " temp_un
@@ -1430,7 +1432,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
