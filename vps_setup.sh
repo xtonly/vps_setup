@@ -872,12 +872,12 @@ manage_tools() {
                     
                     echo -e "${YELLOW}--> 正在运行官方测速...${RESET}"
                     
-                    # 1. 临时备份并替换为公共 DNS，解决 Ookla 域名无法解析的问题
+                    # 1. 必须使用临时公共 DNS，否则 SeedNet 无法解析测速节点
                     cp /etc/resolv.conf /etc/resolv.conf.bak_speedtest 2>/dev/null
                     echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" > /etc/resolv.conf
                     
-                    # 2. 运行测速，并把所有烦人的 [error] 报错丢进黑洞 (2> /dev/null)
-                    speedtest --accept-license --accept-gdpr 2> /dev/null
+                    # 2. 原生运行，不加任何屏蔽，保证交互画面正常显示
+                    speedtest --accept-license --accept-gdpr
                     
                     # 3. 测速刚一结束，立刻光速恢复为你原本自带的 API DNS！绝不影响你的业务
                     cat /etc/resolv.conf.bak_speedtest > /etc/resolv.conf
