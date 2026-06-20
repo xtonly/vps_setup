@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.0 终极纯净版)
+# VPS 综合初始化与管理工具 (5.1 终极纯净版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # 修复：去除 Ookla Speedtest 强制 DNS 劫持，适配原生优质网络
 # ========================================================
@@ -850,67 +850,63 @@ manage_tools() {
 
             3)
                 clear
-                echo -e "${CYAN}========= Speedtest 官方测速 =========${RESET}"
-                echo "  1. 立即运行测试 (测试完可选卸载)"
-                echo "  2. 彻底卸载 Speedtest (含软件源)"
+                echo -e "${CYAN}========= Speedtest 官方绿色免安装版 =========${RESET}"
+                echo "  1. 立即运行测试 (测试完无痕销毁)"
+                echo "  2. 彻底清理历史通过 apt 安装的残留"
                 echo "  0. 返回上一级"
                 echo -e "${MAGENTA}-------------------------------------${RESET}"
                 read -p "请选择: " sp_ch
                 if [ "$sp_ch" == "1" ]; then
-                    # 强力清理可能冲突的 Python 版
-                    if dpkg -l | grep -qw speedtest-cli; then
-                        apt-get purge -y speedtest-cli >/dev/null 2>&1
+                    # 防御性清理：以防系统里还有之前残留的冲突版本
+                    if dpkg -l | grep -qw speedtest; then
+                        apt-get purge -y speedtest speedtest-cli >/dev/null 2>&1
+                        rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
                     fi
                     
-                    if ! command -v speedtest &> /dev/null; then
-                        echo -e "${YELLOW}--> 正在安装 Ookla 官方测速核心...${RESET}"
-                        apt-get update -y >/dev/null 2>&1
-                        apt-get install -y curl ca-certificates >/dev/null 2>&1
-                        
-                        # 核心修复：仅当源文件不存在时才去请求官方脚本，防止被 API 拦截
-                        if [ ! -f "/etc/apt/sources.list.d/ookla_speedtest-cli.list" ]; then
-                            curl -sL https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash >/dev/null 2>&1
-                        fi
-                        
-                        apt-get update -y >/dev/null 2>&1
-                        apt-get install -y speedtest >/dev/null 2>&1
-                        hash -r # 刷新系统的命令缓存
+                    echo -e "${YELLOW}--> 正在拉取 Ookla 官方纯净测速核心...${RESET}"
+                    local sys_arch=$(uname -m)
+                    local dl_url=""
+                    if [[ "$sys_arch" == "aarch64" || "$sys_arch" == "arm64" ]]; then
+                        dl_url="https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-aarch64.tgz"
+                    else
+                        dl_url="https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-x86_64.tgz"
                     fi
                     
-                    clear
-                    # 二次校验拦截
-                    if ! command -v speedtest &> /dev/null; then
-                        echo -e "${RED}严重错误：Speedtest 核心安装失败！请检查您的网络。${RESET}"
+                    # 创建临时独立目录，不污染系统环境
+                    mkdir -p /root/.vps_speedtest
+                    wget -qO /root/.vps_speedtest/speedtest.tgz "$dl_url"
+                    tar -xzf /root/.vps_speedtest/speedtest.tgz -C /root/.vps_speedtest >/dev/null 2>&1
+                    chmod +x /root/.vps_speedtest/speedtest
+                    
+                    if [ ! -f "/root/.vps_speedtest/speedtest" ]; then
+                        echo -e "${RED}严重错误：核心文件拉取失败，请检查网络！${RESET}"
                         echo "" && read -n 1 -s -r -p "按任意键返回..."
                         continue
                     fi
                     
+                    clear
+                    echo -e "${YELLOW}--> 正在进行网络预热与节点探活...${RESET}"
+                    # 强行让系统预先解析目标域名，防止 C++ 核心出现 DNS 寻址超时
+                    ping -c 1 config.speedtest.net >/dev/null 2>&1
+                    sleep 1
+                    
                     echo -e "${YELLOW}--> 正在运行官方测速...${RESET}"
-                    
-                    # 【核心魔法】：模拟人类手动操作的停顿！
-                    # 给运营商 DNS 防火墙 3 秒钟的冷却时间，防止触发并发请求拦截。
-                    echo -e "${BLUE}>> 正在等待网络接口冷却 (3秒)，绕过运营商并发防护...${RESET}"
-                    sleep 3
-                    
-                    # 直接原生运行，享受机器原本的完美网络
-                    speedtest --accept-license --accept-gdpr
+                    # 直接运行绿色版二进制文件
+                    /root/.vps_speedtest/speedtest --accept-license --accept-gdpr
                     
                     echo -e "${MAGENTA}-------------------------------------${RESET}"
-                    read -p "测试完成。是否立即彻底卸载工具? (y/n): " temp_un
+                    read -p "测试完成。是否立即销毁测速核心以保持系统纯净? (y/n): " temp_un
                     if [[ "$temp_un" =~ ^[Yy]$ ]]; then
-                        apt-get purge -y speedtest >/dev/null 2>&1
-                        # 核心修复：不删除官方源配置！下次再测速直接极速拉取
-                        apt-get -y autoremove >/dev/null 2>&1
-                        hash -r
-                        echo -e "${GREEN}官方测速工具已安全移除（源配置已保留以备下次极速调用）。${RESET}"
+                        rm -rf /root/.vps_speedtest
+                        echo -e "${GREEN}测速核心已无痕销毁，不留任何系统垃圾！${RESET}"
                     fi
                 elif [ "$sp_ch" == "2" ]; then
-                    # 只有在这里，用户明确要求连源一起删，才彻底清理干净
                     apt-get purge -y speedtest speedtest-cli >/dev/null 2>&1
                     rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
+                    rm -rf /root/.vps_speedtest
                     apt-get -y autoremove >/dev/null 2>&1
                     hash -r
-                    echo -e "${GREEN}已彻底移除 (包含软件源)。${RESET}"
+                    echo -e "${GREEN}已彻底移除系统中所有历史遗留的 Speedtest 残留。${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
 
@@ -1453,7 +1449,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
