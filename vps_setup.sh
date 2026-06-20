@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.1 终极纯净版)
+# VPS 综合初始化与管理工具 (5.0 终极纯净版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # 修复：去除 Ookla Speedtest 强制 DNS 劫持，适配原生优质网络
 # ========================================================
@@ -878,14 +878,19 @@ manage_tools() {
                     fi
                     
                     clear
-                    # 二次校验拦截：如果真的由于网络原因安装失败，优雅退出而不是爆红字报错
+                    # 二次校验拦截
                     if ! command -v speedtest &> /dev/null; then
-                        echo -e "${RED}严重错误：Speedtest 核心安装失败！请检查您的网络是否能正常访问 packagecloud.io。${RESET}"
+                        echo -e "${RED}严重错误：Speedtest 核心安装失败！请检查您的网络。${RESET}"
                         echo "" && read -n 1 -s -r -p "按任意键返回..."
                         continue
                     fi
                     
                     echo -e "${YELLOW}--> 正在运行官方测速...${RESET}"
+                    
+                    # 【核心魔法】：模拟人类手动操作的停顿！
+                    # 给运营商 DNS 防火墙 3 秒钟的冷却时间，防止触发并发请求拦截。
+                    echo -e "${BLUE}>> 正在等待网络接口冷却 (3秒)，绕过运营商并发防护...${RESET}"
+                    sleep 3
                     
                     # 直接原生运行，享受机器原本的完美网络
                     speedtest --accept-license --accept-gdpr
@@ -894,7 +899,7 @@ manage_tools() {
                     read -p "测试完成。是否立即彻底卸载工具? (y/n): " temp_un
                     if [[ "$temp_un" =~ ^[Yy]$ ]]; then
                         apt-get purge -y speedtest >/dev/null 2>&1
-                        # 核心修复：不删除官方源配置！下次再测速直接极速拉取，绝不报错
+                        # 核心修复：不删除官方源配置！下次再测速直接极速拉取
                         apt-get -y autoremove >/dev/null 2>&1
                         hash -r
                         echo -e "${GREEN}官方测速工具已安全移除（源配置已保留以备下次极速调用）。${RESET}"
@@ -1448,7 +1453,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.0                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
