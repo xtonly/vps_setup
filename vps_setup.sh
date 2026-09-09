@@ -1083,11 +1083,11 @@ manage_tools() {
                 
             11)
                 clear
-                echo -e "${CYAN}=============== Cloudflare 测速模块 ===============${RESET}"
+                echo -e "${CYAN}================= Cloudflare 测速模块 =================${RESET}"
                 echo "  1. 容器无痕运行 CLI 版 (纯 Rust 静态编译，绝对纯净)"
                 echo "  2. 原生 Bash 极速跑流 (伪装 UA 绕过 CF 拦截拉取)"
                 echo "  0. 返回上一级"
-                echo -e "${MAGENTA}---------------------------------------------------${RESET}"
+                echo -e "${MAGENTA}-------------------------------------------------------${RESET}"
                 read -p "请选择: " cfspeed_ch
                 
                 if [ "$cfspeed_ch" == "1" ]; then
