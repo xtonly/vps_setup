@@ -1,9 +1,10 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.2 终极纯净版)
+# VPS 综合初始化与管理工具 (5.3 终极纯净版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # 修复：去除 Ookla Speedtest 强制 DNS 劫持，适配原生优质网络
+# 强化：Cloudflare Speed CLI 纯净无痕执行与原生 1GB 极速测速
 # ========================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -1081,8 +1082,8 @@ manage_tools() {
             11)
                 clear
                 echo -e "${CYAN}========= Cloudflare 测速模块 =========${RESET}"
-                echo "  1. 容器无痕运行 CLI 版 (需已安装 Docker，用完即焚)"
-                echo "  2. 原生 Bash 极简测速 (仅利用 Curl 请求 CF 边缘节点)"
+                echo "  1. 容器无痕运行 CLI 版 (用完即焚/拒绝npm依赖污染)"
+                echo "  2. 原生 Bash 极速跑流 (直接利用 Curl 拉取 CF 1GB 测速文件)"
                 echo "  0. 返回上一级"
                 echo -e "${MAGENTA}---------------------------------------${RESET}"
                 read -p "请选择: " cfspeed_ch
@@ -1090,16 +1091,18 @@ manage_tools() {
                 if [ "$cfspeed_ch" == "1" ]; then
                     if ! command -v docker &> /dev/null; then
                         echo -e "${RED}提示：未检测到 Docker 环境！${RESET}"
-                        echo -e "${YELLOW}请先在主菜单【7】中部署 Docker，或选择选项 2 进行基础测速。${RESET}"
+                        echo -e "${YELLOW}请先在主菜单【7】中部署 Docker，或选择选项 2 进行原生测速。${RESET}"
                     else
-                        echo -e "${YELLOW}--> 正在启动临时 Node 容器执行测速... (按 Ctrl+C 随时终止)${RESET}"
-                        docker run --rm -it node:alpine npx cloudflare-speed-cli
-                        echo -e "${GREEN}测速完毕！容器已无痕销毁，宿主机保持纯净。${RESET}"
+                        echo -e "${YELLOW}--> 正在启动临时 Alpine 容器执行测速... (按 Ctrl+C 随时终止)${RESET}"
+                        # 抛弃 npm，直接在超轻量 alpine 容器内拉取预编译的核心文件并运行
+                        docker run --rm -it alpine sh -c "apk add --no-cache curl tar xz >/dev/null 2>&1 && echo '--> 正在拉取 cloudflare-speed-cli 核心...' && arch=\$(uname -m) && if [ \"\$arch\" = \"aarch64\" ] || [ \"\$arch\" = \"arm64\" ]; then file=\"cloudflare-speed-cli-aarch64-unknown-linux-musl.tar.xz\"; else file=\"cloudflare-speed-cli-x86_64-unknown-linux-musl.tar.xz\"; fi && curl -sL \"https://github.com/kavehtehrani/cloudflare-speed-cli/releases/latest/download/\$file\" | tar xJ && clear && ./cloudflare-speed-cli"
+                        echo -e "${GREEN}测速完毕！临时容器已销毁，宿主机保持绝对纯净。${RESET}"
                     fi
                 elif [ "$cfspeed_ch" == "2" ]; then
-                    echo -e "${YELLOW}--> 正在向 Cloudflare 边缘节点请求 1GB 测试文件...${RESET}"
-                    curl -# -w "%{speed_download} %{time_total}" -o /dev/null https://speed.cloudflare.com/__down?bytes=1073741824 | awk '{printf "\n==================================\n平均速度: %.2f MB/s\n总耗时: %.2f 秒\n==================================\n", $1/1048576, $2}'
-                    echo -e "${GREEN}下载测试完成！${RESET}"
+                    echo -e "${YELLOW}--> 正在向 Cloudflare 边缘节点请求 1GB 极限测试文件...${RESET}"
+                    # 请求1GB文件，并利用 awk 直接捕获 curl 的速度(MB/s)及总耗时
+                    curl -# -w "%{speed_download} %{time_total}" -o /dev/null "https://speed.cloudflare.com/__down?bytes=1073741824" | awk '{printf "\n==================================\n平均速度: %.2f MB/s\n总耗时: %.2f 秒\n==================================\n", $1/1048576, $2}'
+                    echo -e "${GREEN}下载跑流测试完成！${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
                 
@@ -1491,7 +1494,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.2                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.3                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
