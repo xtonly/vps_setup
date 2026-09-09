@@ -222,11 +222,11 @@ EOF
 menu_system_base() {
     while true; do
         clear
-        echo -e "${CYAN}============= [1] 系统基础设置 =============${RESET}"
+        echo -e "${CYAN}============== [1] 系统基础设置 ==============${RESET}"
         echo "  1. 设置 主机名 (Hostname) 与 Swap 虚拟内存"
         echo "  2. 管理 IPv6 状态 (加固禁用 / 恢复)"
         echo "  0. 返回主菜单"
-        echo -e "${MAGENTA}============================================${RESET}"
+        echo -e "${MAGENTA}==============================================${RESET}"
         read -p "请选择: " choice
         case "$choice" in
             1) setup_hostname_swap ;;
@@ -307,7 +307,7 @@ manage_kernel() {
 
     while true; do
         clear
-        echo -e "${CYAN}========= [5] 系统内核自适应与强制锁定管理 =========${RESET}"
+        echo -e "${CYAN}========== [5] 系统内核自适应与强制锁定管理 ==========${RESET}"
         
         if [ "$OS_ID" == "debian" ]; then
             echo "1. 安装 绝对稳定版云内核 (抓取 Release 源)"
@@ -320,7 +320,7 @@ manage_kernel() {
         echo "3. 查看 当前系统已安装的所有内核包"
         echo "4. 深度 清理未使用内核 (卸载非运行中内核)"
         echo "0. 返回主菜单"
-        echo -e "${MAGENTA}====================================================${RESET}"
+        echo -e "${MAGENTA}======================================================${RESET}"
         read -p "请选择 [0-4]: " kernel_choice
 
         case "$kernel_choice" in
@@ -493,11 +493,11 @@ manage_caddy() {
 menu_services() {
     while true; do
         clear
-        echo -e "${CYAN}================ [2] 网络与节点服务 ================${RESET}"
+        echo -e "${CYAN}================= [2] 网络与节点服务 =================${RESET}"
         echo "  1. 部署 E-Shoes 代理节点 (SS2022/Reality/Anytls)"
         echo "  2. 部署 EasyCaddy 反向代理系统"
         echo "  0. 返回主菜单"
-        echo -e "${MAGENTA}====================================================${RESET}"
+        echo -e "${MAGENTA}======================================================${RESET}"
         read -p "请选择: " choice
         case "$choice" in
             1) run_eshoes ;;
@@ -677,12 +677,12 @@ manage_ssh() {
 menu_security() {
     while true; do
         clear
-        echo -e "${CYAN}============= [4] 综合安全防御 =============${RESET}"
+        echo -e "${CYAN}============== [4] 综合安全防御 ==============${RESET}"
         echo "  1. 独立管理 UFW 防火墙"
         echo "  2. 独立管理 Fail2Ban 策略"
         echo "  3. 管理 SSH 端口与密钥登录"
         echo "  0. 返回主菜单"
-        echo -e "${MAGENTA}============================================${RESET}"
+        echo -e "${MAGENTA}==============================================${RESET}"
         read -p "请选择: " choice
         case "$choice" in
             1) manage_ufw ;;
@@ -700,7 +700,7 @@ menu_security() {
 run_network_tests() {
     while true; do
         clear
-        echo -e "${CYAN}=========== [6] 综合测试脚本合集 ===========${RESET}"
+        echo -e "${CYAN}============= [6] 综合测试脚本合集 =============${RESET}"
         echo "  1. NodeQuality 综合节点测试"
         echo "  2. IP 质量与欺诈分数查询"
         echo "  3. 流媒体解锁测试 (含 Ins 状态)"
@@ -709,7 +709,7 @@ run_network_tests() {
         echo "  6. 综合压测: YABS (性能与网络全能跑分)"
         echo "  7. 基础测试: Bench.sh (经典版信息与测速)"
         echo "  0. 返回上一级"
-        echo -e "${MAGENTA}===========================================${RESET}"
+        echo -e "${MAGENTA}===============================================${RESET}"
         read -p "请选择测试项 [0-7]: " test_choice
 
         case "$test_choice" in
@@ -775,7 +775,7 @@ set_dns() {
 manage_tools() {
     while true; do
         clear
-        echo -e "${CYAN}================ [3] 实用工具箱 ================${RESET}"
+        echo -e "${CYAN}================= [3] 实用工具箱 =================${RESET}"
         echo "  1. 测速节点: iperf3 (自定义端口/即开即关)"
         echo "  2. 简易面板: Docker SpeedTest (端口 2333)"
         echo "  3. 网络测速: speedtest (官方 CLI/可选卸载)"
@@ -786,9 +786,9 @@ manage_tools() {
         echo "  8. 端口检测: TCPing (即时测试/可选卸载)"
         echo "  9. 路由追踪: e-BestTrace (增强版路由分析)"
         echo "  10. 流量监控: e-Traffic (网卡流量探针)"
-        echo "  11. 网络测速: Cloudflare 测速模块 (容器化/原生版)"
+        echo "  11. 网络测速: Cloudflare 测速 (容器化/原生版)"
         echo "  0. 返回主菜单"
-        echo -e "${MAGENTA}================================================${RESET}"
+        echo -e "${MAGENTA}==================================================${RESET}"
         read -p "请选择操作 [0-11]: " tool_choice
 
         case "$tool_choice" in
@@ -1083,11 +1083,11 @@ manage_tools() {
                 
             11)
                 clear
-                echo -e "${CYAN}========= Cloudflare 测速模块 =========${RESET}"
+                echo -e "${CYAN}=============== Cloudflare 测速模块 ===============${RESET}"
                 echo "  1. 容器无痕运行 CLI 版 (纯 Rust 静态编译，绝对纯净)"
                 echo "  2. 原生 Bash 极速跑流 (伪装 UA 绕过 CF 拦截拉取)"
                 echo "  0. 返回上一级"
-                echo -e "${MAGENTA}---------------------------------------${RESET}"
+                echo -e "${MAGENTA}---------------------------------------------------${RESET}"
                 read -p "请选择: " cfspeed_ch
                 
                 if [ "$cfspeed_ch" == "1" ]; then
@@ -1442,21 +1442,21 @@ menu_docker_watchtower() {
 menu_docker_main() {
     while true; do
         clear
-        echo -e "${CYAN}=================== [7] Docker 综合管理 ===================${RESET}"
+        echo -e "${CYAN}==================== [7] Docker 综合管理 ====================${RESET}"
         if command -v docker &>/dev/null; then 
             dk_ver=$(docker -v | awk '{print $3}' | tr -d ',')
             echo -e " ${BLUE}Docker 状态:${RESET} ${GREEN}正常运行 (v$dk_ver)${RESET}"
         else
             echo -e " ${BLUE}Docker 状态:${RESET} ${RED}未安装${RESET}"
         fi
-        echo -e "${MAGENTA}-----------------------------------------------------------${RESET}"
+        echo -e "${MAGENTA}-------------------------------------------------------------${RESET}"
         echo "  1. 引擎管理: Docker 部署 / 强行升级 / 彻底卸载"
         echo "  2. 容器管家: 启动 / 停止 / 查看日志 / 平滑更新镜像"
         echo "  3. 镜像清理: 查看镜像 / 删除特定镜像 / 系统空间释放"
         echo "  4. 网络进阶: 全局镜像加速器 (Mirror) / IPv6 赋能"
         echo "  5. 自动维护: Watchtower 自动更新巡检配置"
         echo "  0. 返回主菜单"
-        echo -e "${MAGENTA}===========================================================${RESET}"
+        echo -e "${MAGENTA}=============================================================${RESET}"
         read -p "请选择操作 [0-5]: " d_main_choice
 
         case "$d_main_choice" in
