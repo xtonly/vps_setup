@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.1 终极纯净版)
+# VPS 综合初始化与管理工具 (5.2 终极纯净版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # 修复：去除 Ookla Speedtest 强制 DNS 劫持，适配原生优质网络
 # ========================================================
@@ -781,7 +781,7 @@ manage_tools() {
         echo "  8. 端口检测: TCPing (即时测试/可选卸载)"
         echo "  9. 路由追踪: e-BestTrace (增强版路由分析)"
         echo "  10. 流量监控: e-Traffic (网卡流量探针)"
-        echo "  11. 网络测速: Cloudflare Speed Test (CLI版)"
+        echo "  11. 网络测速: Cloudflare 测速模块 (容器化/原生版)"
         echo "  12. 综合压测: YABS (性能与网络全能跑分)"
         echo "  13. 基础测试: Bench.sh (经典版信息与测速)"
         echo "  0. 返回主菜单"
@@ -1080,27 +1080,26 @@ manage_tools() {
                 
             11)
                 clear
-                echo -e "${CYAN}========= Cloudflare Speed CLI 测速 =========${RESET}"
-                echo "  1. 运行 Cloudflare 测速 (基于 npx 无痕运行)"
-                echo "  2. 清理历史 Node/npx 缓存"
+                echo -e "${CYAN}========= Cloudflare 测速模块 =========${RESET}"
+                echo "  1. 容器无痕运行 CLI 版 (需已安装 Docker，用完即焚)"
+                echo "  2. 原生 Bash 极简测速 (仅利用 Curl 请求 CF 边缘节点)"
                 echo "  0. 返回上一级"
-                echo -e "${MAGENTA}---------------------------------------------${RESET}"
+                echo -e "${MAGENTA}---------------------------------------${RESET}"
                 read -p "请选择: " cfspeed_ch
                 
                 if [ "$cfspeed_ch" == "1" ]; then
-                    if ! command -v npm &> /dev/null; then
-                        echo -e "${YELLOW}--> 未检测到 npm 环境，正在自动为您安装 Node.js...${RESET}"
-                        apt update -y && apt install -y nodejs npm
-                    fi
-                    echo -e "${YELLOW}--> 正在拉取并运行 Cloudflare Speed CLI... (请耐心等待测速完成)${RESET}"
-                    npx cloudflare-speed-cli
-                elif [ "$cfspeed_ch" == "2" ]; then
-                    if command -v npm &> /dev/null; then
-                        npm cache clean --force
-                        echo -e "${GREEN}npm/npx 缓存已成功清理！${RESET}"
+                    if ! command -v docker &> /dev/null; then
+                        echo -e "${RED}提示：未检测到 Docker 环境！${RESET}"
+                        echo -e "${YELLOW}请先在主菜单【7】中部署 Docker，或选择选项 2 进行基础测速。${RESET}"
                     else
-                        echo -e "${YELLOW}系统未安装 npm 环境，无需清理。${RESET}"
+                        echo -e "${YELLOW}--> 正在启动临时 Node 容器执行测速... (按 Ctrl+C 随时终止)${RESET}"
+                        docker run --rm -it node:alpine npx cloudflare-speed-cli
+                        echo -e "${GREEN}测速完毕！容器已无痕销毁，宿主机保持纯净。${RESET}"
                     fi
+                elif [ "$cfspeed_ch" == "2" ]; then
+                    echo -e "${YELLOW}--> 正在向 Cloudflare 边缘节点请求 100MB 测试文件...${RESET}"
+                    curl -# -w "\n==================================\n总耗时: %{time_total} 秒\n==================================\n" -o /dev/null https://speed.cloudflare.com/__down?bytes=104857600
+                    echo -e "${GREEN}下载测试完成！${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
                 
