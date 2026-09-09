@@ -1095,8 +1095,8 @@ manage_tools() {
                         echo -e "${RED}提示：未检测到 Docker 环境！${RESET}"
                         echo -e "${YELLOW}请先在主菜单【7】中部署 Docker，或选择选项 2 进行原生测速。${RESET}"
                     else
-                        echo -e "${YELLOW}--> 正在启动临时 Alpine 容器执行测速... (按 Ctrl+C 随时终止)${RESET}"
-                        # 抛弃 npm，直接在超轻量 alpine 容器内拉取预编译的核心文件并智能寻找可执行文件运行
+                        echo -e "${YELLOW}--> 正在启动临时 Alpine 容器执行测速... (按 Ctrl+C 随时终止/测试完成按 Ctrl+C 返回)${RESET}"
+                        # 在超轻量 alpine 容器内拉取预编译的核心文件并智能寻找可执行文件运行
                         docker run --rm -it alpine sh -c 'apk add --no-cache curl tar xz >/dev/null 2>&1 && echo "--> 正在拉取 cloudflare-speed-cli 核心..." && arch=$(uname -m) && if [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]; then file="cloudflare-speed-cli-aarch64-unknown-linux-musl.tar.xz"; else file="cloudflare-speed-cli-x86_64-unknown-linux-musl.tar.xz"; fi && mkdir -p cf-cli && curl -sL "https://github.com/kavehtehrani/cloudflare-speed-cli/releases/latest/download/$file" | tar xJ -C cf-cli && clear && BIN=$(find cf-cli -type f -name "cloudflare-speed-cli" | head -n 1) && chmod +x "$BIN" && exec "$BIN"'
                         
                         # 强制添加显式换行提示，防止 CLI 图形退出时吃掉终端输入符
