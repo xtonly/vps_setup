@@ -1,9 +1,10 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.1 终极纯净版)
+# VPS 综合初始化与管理工具 (5.2 终极纯净版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # 修复：去除 Ookla Speedtest 强制 DNS 劫持，适配原生优质网络
+# 强化：Cloudflare Speed 完美容器化与原生 UA 伪装测速
 # ========================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -694,7 +695,7 @@ menu_security() {
 }
 
 # ==========================================
-# 测试与探针
+# [6] 测试与探针 (修复版：已加入 YABS & Bench.sh)
 # ==========================================
 run_network_tests() {
     while true; do
@@ -705,9 +706,11 @@ run_network_tests() {
         echo "  3. 流媒体解锁测试 (含 Ins 状态)"
         echo "  4. 流媒体解锁测试 (经典版)"
         echo "  5. 硬盘测速与性能测试 (Aniverse)"
+        echo "  6. 综合压测: YABS (性能与网络全能跑分)"
+        echo "  7. 基础测试: Bench.sh (经典版信息与测速)"
         echo "  0. 返回上一级"
         echo -e "${MAGENTA}===========================================${RESET}"
-        read -p "请选择测试项 [0-5]: " test_choice
+        read -p "请选择测试项 [0-7]: " test_choice
 
         case "$test_choice" in
             1) clear; echo -e "${YELLOW}--> 开始运行...${RESET}"; bash <(curl -sL https://run.NodeQuality.com); echo ""; read -n 1 -s -r -p "按任意键返回..." ;;
@@ -715,6 +718,8 @@ run_network_tests() {
             3) clear; echo -e "${YELLOW}--> 开始运行...${RESET}"; bash <(curl -L -s check.unlock.media); echo ""; read -n 1 -s -r -p "按任意键返回..." ;;
             4) clear; echo -e "${YELLOW}--> 开始运行...${RESET}"; bash <(curl -L -s https://github.com/1-stream/RegionRestrictionCheck/raw/main/check.sh); echo ""; read -n 1 -s -r -p "按任意键返回..." ;;
             5) clear; echo -e "${YELLOW}--> 开始执行...${RESET}"; wget -q https://github.com/Aniverse/A/raw/i/a && bash a; echo ""; read -n 1 -s -r -p "按任意键返回..." ;;
+            6) clear; echo -e "${YELLOW}--> 正在运行 YABS 综合性能压测... (耗时较长，请耐心等待)${RESET}"; curl -sL yabs.sh | bash; echo ""; read -n 1 -s -r -p "按任意键返回..." ;;
+            7) clear; echo -e "${YELLOW}--> 正在运行 Bench.sh...${RESET}"; wget -qO- bench.sh | bash; echo ""; read -n 1 -s -r -p "按任意键返回..." ;;
             0) return ;;
             *) echo -e "${RED}无效的选择！${RESET}" && sleep 1 ;;
         esac
@@ -765,7 +770,7 @@ set_dns() {
 }
 
 # ==========================================
-# [3] 实用工具箱 (包含网络测速、综合跑分)
+# [3] 实用工具箱 (已剥离 YABS / Bench，专属网络工具)
 # ==========================================
 manage_tools() {
     while true; do
@@ -782,11 +787,9 @@ manage_tools() {
         echo "  9. 路由追踪: e-BestTrace (增强版路由分析)"
         echo "  10. 流量监控: e-Traffic (网卡流量探针)"
         echo "  11. 网络测速: Cloudflare 测速模块 (容器化/原生版)"
-        echo "  12. 综合压测: YABS (性能与网络全能跑分)"
-        echo "  13. 基础测试: Bench.sh (经典版信息与测速)"
         echo "  0. 返回主菜单"
         echo -e "${MAGENTA}================================================${RESET}"
-        read -p "请选择操作 [0-13]: " tool_choice
+        read -p "请选择操作 [0-11]: " tool_choice
 
         case "$tool_choice" in
             1)
@@ -1082,7 +1085,7 @@ manage_tools() {
                 clear
                 echo -e "${CYAN}========= Cloudflare 测速模块 =========${RESET}"
                 echo "  1. 容器无痕运行 CLI 版 (纯 Rust 静态编译，绝对纯净)"
-                echo "  2. 原生 Bash 极速跑流 (直接利用 Curl 拉取 CF 500MB 测试文件)"
+                echo "  2. 原生 Bash 极速跑流 (伪装 UA 绕过 CF 拦截拉取)"
                 echo "  0. 返回上一级"
                 echo -e "${MAGENTA}---------------------------------------${RESET}"
                 read -p "请选择: " cfspeed_ch
@@ -1095,29 +1098,23 @@ manage_tools() {
                         echo -e "${YELLOW}--> 正在启动临时 Alpine 容器执行测速... (按 Ctrl+C 随时终止)${RESET}"
                         # 抛弃 npm，直接在超轻量 alpine 容器内拉取预编译的核心文件并智能寻找可执行文件运行
                         docker run --rm -it alpine sh -c 'apk add --no-cache curl tar xz >/dev/null 2>&1 && echo "--> 正在拉取 cloudflare-speed-cli 核心..." && arch=$(uname -m) && if [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]; then file="cloudflare-speed-cli-aarch64-unknown-linux-musl.tar.xz"; else file="cloudflare-speed-cli-x86_64-unknown-linux-musl.tar.xz"; fi && mkdir -p cf-cli && curl -sL "https://github.com/kavehtehrani/cloudflare-speed-cli/releases/latest/download/$file" | tar xJ -C cf-cli && clear && BIN=$(find cf-cli -type f -name "cloudflare-speed-cli" | head -n 1) && chmod +x "$BIN" && exec "$BIN"'
-                        echo -e "${GREEN}测速完毕！临时容器已销毁，宿主机保持绝对纯净。${RESET}"
+                        
+                        # 强制添加显式换行提示，防止 CLI 图形退出时吃掉终端输入符
+                        echo -e "\n${GREEN}测速完毕！临时容器已销毁，宿主机保持绝对纯净。${RESET}"
+                        echo "" && read -n 1 -s -r -p "按任意键返回..."
                     fi
                 elif [ "$cfspeed_ch" == "2" ]; then
-                    echo -e "${YELLOW}--> 正在向 Cloudflare 边缘节点请求 500MB 极限测试文件 (官方单次限制上限)...${RESET}"
-                    # 1GB 文件会导致 Cloudflare 拦截 (0.04秒返回 400 Bad Request)，采用稳定极限值 500MB (524288000 bytes)
-                    curl -# -w "%{speed_download} %{time_total}" -o /dev/null "https://speed.cloudflare.com/__down?bytes=524288000" | awk '{printf "\n==================================\n平均速度: %.2f MB/s\n总耗时: %.2f 秒\n==================================\n", $1/1048576, $2}'
+                    echo -e "${YELLOW}--> 正在向 Cloudflare 边缘节点请求极限测试文件...${RESET}"
+                    echo -e "${BLUE}提示: 已伪装浏览器 User-Agent 以绕过 CF WAF 拦截${RESET}"
+                    
+                    # 强行注入 Mozilla User-Agent 与 Referer 头，彻底骗过 CF 拦截网关，稳定跑流
+                    curl -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" -H "Referer: https://speed.cloudflare.com/" -# -w "%{speed_download} %{time_total}" -o /dev/null "https://speed.cloudflare.com/__down?bytes=524288000" | awk '{printf "\n==================================\n平均速度: %.2f MB/s\n总耗时: %.2f 秒\n==================================\n", $1/1048576, $2}'
+                    
                     echo -e "${GREEN}下载跑流测试完成！${RESET}"
+                    echo "" && read -n 1 -s -r -p "按任意键返回..."
                 fi
-                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
-                
-            12)
-                clear
-                echo -e "${CYAN}========= YABS (Yet Another Bench Script) =========${RESET}"
-                echo -e "${YELLOW}--> 正在运行 YABS 综合性能压测... (耗时较长，请耐心等待)${RESET}"
-                curl -sL yabs.sh | bash
-                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
-                
-            13)
-                clear
-                echo -e "${CYAN}========= Bench.sh 基础性能测试 =========${RESET}"
-                echo -e "${YELLOW}--> 正在运行 Bench.sh...${RESET}"
-                wget -qO- bench.sh | bash
-                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+                # 由于上方内部增加了更准确的 read 返回，这里跳过执行，避免双重等待
+                continue ;;
 
             0) return ;;
             *) echo -e "${RED}无效的选择！${RESET}" && sleep 1 ;;
@@ -1493,7 +1490,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.2                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
