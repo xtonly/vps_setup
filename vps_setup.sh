@@ -765,7 +765,7 @@ set_dns() {
 }
 
 # ==========================================
-# [3] 实用工具箱 (剔除 Docker 等纯工具合集)
+# [3] 实用工具箱 (包含网络测速、综合跑分)
 # ==========================================
 manage_tools() {
     while true; do
@@ -781,9 +781,12 @@ manage_tools() {
         echo "  8. 端口检测: TCPing (即时测试/可选卸载)"
         echo "  9. 路由追踪: e-BestTrace (增强版路由分析)"
         echo "  10. 流量监控: e-Traffic (网卡流量探针)"
+        echo "  11. 网络测速: Cloudflare Speed Test (CLI版)"
+        echo "  12. 综合压测: YABS (性能与网络全能跑分)"
+        echo "  13. 基础测试: Bench.sh (经典版信息与测速)"
         echo "  0. 返回主菜单"
         echo -e "${MAGENTA}================================================${RESET}"
-        read -p "请选择操作 [0-10]: " tool_choice
+        read -p "请选择操作 [0-13]: " tool_choice
 
         case "$tool_choice" in
             1)
@@ -1073,6 +1076,46 @@ manage_tools() {
                 echo -e "${CYAN}========= e-Traffic 流量监控 =========${RESET}"
                 echo -e "${YELLOW}--> 正在运行 e-Traffic...${RESET}"
                 wget --no-check-certificate -O eTraffic.sh https://raw.githubusercontent.com/xtonly/e-Traffic/refs/heads/main/eTraffic.sh && chmod +x eTraffic.sh && ./eTraffic.sh
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+                
+            11)
+                clear
+                echo -e "${CYAN}========= Cloudflare Speed CLI 测速 =========${RESET}"
+                echo "  1. 运行 Cloudflare 测速 (基于 npx 无痕运行)"
+                echo "  2. 清理历史 Node/npx 缓存"
+                echo "  0. 返回上一级"
+                echo -e "${MAGENTA}---------------------------------------------${RESET}"
+                read -p "请选择: " cfspeed_ch
+                
+                if [ "$cfspeed_ch" == "1" ]; then
+                    if ! command -v npm &> /dev/null; then
+                        echo -e "${YELLOW}--> 未检测到 npm 环境，正在自动为您安装 Node.js...${RESET}"
+                        apt update -y && apt install -y nodejs npm
+                    fi
+                    echo -e "${YELLOW}--> 正在拉取并运行 Cloudflare Speed CLI... (请耐心等待测速完成)${RESET}"
+                    npx cloudflare-speed-cli
+                elif [ "$cfspeed_ch" == "2" ]; then
+                    if command -v npm &> /dev/null; then
+                        npm cache clean --force
+                        echo -e "${GREEN}npm/npx 缓存已成功清理！${RESET}"
+                    else
+                        echo -e "${YELLOW}系统未安装 npm 环境，无需清理。${RESET}"
+                    fi
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+                
+            12)
+                clear
+                echo -e "${CYAN}========= YABS (Yet Another Bench Script) =========${RESET}"
+                echo -e "${YELLOW}--> 正在运行 YABS 综合性能压测... (耗时较长，请耐心等待)${RESET}"
+                curl -sL yabs.sh | bash
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+                
+            13)
+                clear
+                echo -e "${CYAN}========= Bench.sh 基础性能测试 =========${RESET}"
+                echo -e "${YELLOW}--> 正在运行 Bench.sh...${RESET}"
+                wget -qO- bench.sh | bash
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
 
             0) return ;;
@@ -1449,7 +1492,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.1                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.2                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
