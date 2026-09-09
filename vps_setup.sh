@@ -1097,8 +1097,8 @@ manage_tools() {
                         echo -e "${GREEN}测速完毕！容器已无痕销毁，宿主机保持纯净。${RESET}"
                     fi
                 elif [ "$cfspeed_ch" == "2" ]; then
-                    echo -e "${YELLOW}--> 正在向 Cloudflare 边缘节点请求 100MB 测试文件...${RESET}"
-                    curl -# -w "\n==================================\n总耗时: %{time_total} 秒\n==================================\n" -o /dev/null https://speed.cloudflare.com/__down?bytes=104857600
+                    echo -e "${YELLOW}--> 正在向 Cloudflare 边缘节点请求 1GB 测试文件...${RESET}"
+                    curl -# -w "%{speed_download} %{time_total}" -o /dev/null https://speed.cloudflare.com/__down?bytes=1073741824 | awk '{printf "\n==================================\n平均速度: %.2f MB/s\n总耗时: %.2f 秒\n==================================\n", $1/1048576, $2}'
                     echo -e "${GREEN}下载测试完成！${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
