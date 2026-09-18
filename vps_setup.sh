@@ -1094,6 +1094,7 @@ manage_tools() {
                     if ! command -v docker &> /dev/null; then
                         echo -e "${RED}提示：未检测到 Docker 环境！${RESET}"
                         echo -e "${YELLOW}请先在主菜单【7】中部署 Docker，或选择选项 2 进行原生测速。${RESET}"
+                        echo "" && read -n 1 -s -r -p "按任意键返回..."
                     else
                         echo -e "${YELLOW}--> 正在启动临时 Alpine 容器执行测速... (按 Ctrl+C 随时终止/测试完成按 Ctrl+C 返回)${RESET}"
                         # 在超轻量 alpine 容器内拉取预编译的核心文件并智能寻找可执行文件运行
@@ -1138,15 +1139,26 @@ install_docker() {
 
         case "$docker_ch" in
             1)
-                if ! command -v docker &> /dev/null; then
-                    echo -e "${YELLOW}--> 正在安装 Docker...${RESET}"
-                    curl -fsSL https://get.docker.com | bash -s docker
+            if ! command -v docker &> /dev/null; then
+                echo -e "${YELLOW}--> 正在尝试从官方源安装 Docker...${RESET}"
+                # 捕获官方脚本的执行状态
+                if curl -fsSL https://get.docker.com | bash -s docker; then
                     systemctl enable --now docker
                     echo -e "${GREEN}Docker 安装完成！${RESET}"
                 else
-                    echo -e "${GREEN}检测到 Docker 已安装。如果需要修复或更新，请使用选项 2。${RESET}"
+                    echo -e "${YELLOW}--> 官方源访问超时，正在尝试切换至阿里云镜像源...${RESET}"
+                    # 官方源失败后，利用官方脚本自带的 --mirror 参数走国内加速源
+                    if curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun; then
+                        systemctl enable --now docker
+                        echo -e "${GREEN}Docker (阿里云源) 安装完成！${RESET}"
+                    else
+                        echo -e "${RED}Docker 安装彻底失败，请检查服务器网络！${RESET}"
+                    fi
                 fi
-                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            else
+                echo -e "${GREEN}检测到 Docker 已安装。如果需要修复或更新，请使用选项 2。${RESET}"
+            fi
+            echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             2)
                 echo -e "${YELLOW}--> 正在强行更新 Docker 引擎...${RESET}"
                 if command -v docker &> /dev/null; then apt-get update -y && apt-get install -y --only-upgrade docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; else curl -fsSL https://get.docker.com | bash -s docker; fi
