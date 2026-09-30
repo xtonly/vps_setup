@@ -417,10 +417,12 @@ manage_caddy() {
         echo "  2. 配置并启用反向代理 (域名 -> 端口)"
         echo "  3. 查看代理列表与状态"
         echo "  4. 删除指定的反向代理配置"
-        echo "  5. 彻底卸载 Caddy"
+        echo "  5. 重启 Caddy 服务"
+        echo "  6. 更新 Caddy 核心版本"
+        echo "  7. 彻底卸载 Caddy"
         echo "  0. 返回上一级"
         echo -e "${MAGENTA}======================================================${RESET}"
-        read -p "  请选择操作 [0-5]: " caddy_choice
+        read -p "  请选择操作 [0-7]: " caddy_choice
 
         case "$caddy_choice" in
             1)
@@ -453,7 +455,7 @@ manage_caddy() {
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             3)
-                if [ -f "$PROXY_CONFIG_FILE" ]; then
+                if [ -s "$PROXY_CONFIG_FILE" ]; then
                     lineno=0
                     while IFS= read -r line; do
                         lineno=$((lineno+1))
@@ -461,10 +463,12 @@ manage_caddy() {
                         status=$(check_port_running "$port")
                         echo -e "  ${WHITE}${lineno})${RESET} ${line} [状态：${status}]"
                     done < "$PROXY_CONFIG_FILE"
+                else
+                    echo -e "${YELLOW}暂无代理记录。请先使用选项 2 添加反向代理。${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             4)
-                if [ -f "$PROXY_CONFIG_FILE" ]; then
+                if [ -s "$PROXY_CONFIG_FILE" ]; then
                     lineno=0; while IFS= read -r line; do lineno=$((lineno+1)); echo "  ${lineno}) ${line}"; done < "$PROXY_CONFIG_FILE"
                     read -p "输入删除编号: " proxy_number
                     if [[ "$proxy_number" =~ ^[0-9]+$ ]]; then
@@ -479,11 +483,28 @@ manage_caddy() {
                         systemctl restart caddy
                         echo -e "${GREEN}已删除并刷新配置！${RESET}"
                     fi
+                else
+                    echo -e "${YELLOW}暂无代理记录可删除。${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             5)
+                echo -e "${YELLOW}正在重启 Caddy 服务...${RESET}"
+                systemctl restart caddy
+                if systemctl is-active --quiet caddy; then
+                    echo -e "${GREEN}Caddy 服务已成功重启！${RESET}"
+                else
+                    echo -e "${RED}Caddy 重启失败，请检查配置文件是否异常。${RESET}"
+                fi
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            6)
+                echo -e "${YELLOW}正在检查并更新 Caddy 核心版本...${RESET}"
+                apt-get update -y && apt-get install --only-upgrade -y caddy
+                systemctl restart caddy
+                echo -e "${GREEN}Caddy 尝试更新至官方源最新版并已重启服务！${RESET}"
+                echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
+            7)
                 systemctl stop caddy; apt-get remove --purge -y caddy; rm -f "$CADDYFILE" "$PROXY_CONFIG_FILE"
-                echo -e "${GREEN}已卸载。${RESET}"
+                echo -e "${GREEN}已彻底卸载。${RESET}"
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             0) return ;;
         esac
