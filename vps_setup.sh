@@ -405,6 +405,24 @@ check_caddy_installed() { command -v caddy >/dev/null 2>&1; }
 check_port_running() { local p=$1; if ss -tuln | grep -q ":$p "; then echo -e "${GREEN}活跃${RESET}"; else echo -e "${RED}离线${RESET}"; fi }
 
 manage_caddy() {
+    # 核心新增：实时解析 Caddyfile 并同步到代理记录文件
+    sync_caddy_records() {
+        if [ -f "$CADDYFILE" ]; then
+            # 过滤掉注释行，提取带 { 的域名，以及 reverse_proxy 的转发地址
+            grep -v '^[[:space:]]*#' "$CADDYFILE" | awk '
+            /\{/ { 
+                # 获取第一列作为域名，并清理可能粘连的 { 符号
+                domain=$1; gsub(/\{/, "", domain); 
+            }
+            /reverse_proxy/ {
+                # 忽略默认的 :80 块和空块
+                if (domain != "" && domain != ":80") {
+                    print domain " -> " $2
+                }
+            }' > "$PROXY_CONFIG_FILE"
+        fi
+    }
+
     while true; do
         clear
         echo -e "${CYAN}=============== EasyCaddy 反向代理管理 ===============${RESET}"
@@ -415,8 +433,8 @@ manage_caddy() {
         echo -e "${MAGENTA}------------------------------------------------------${RESET}"
         echo "  1. 一键安装 Caddy"
         echo "  2. 配置并启用反向代理 (域名 -> 端口)"
-        echo "  3. 查看代理列表与状态"
-        echo "  4. 删除指定的反向代理配置"
+        echo "  3. 查看代理列表与状态 (自动同步 Caddyfile 真实数据)"
+        echo "  4. 删除指定的反向代理配置 (安全模式)"
         echo "  5. 重启 Caddy 服务"
         echo "  6. 更新 Caddy 核心版本"
         echo "  7. 彻底卸载 Caddy"
@@ -440,21 +458,20 @@ manage_caddy() {
                     upstream="http://127.0.0.1:${port}"
                     [[ ! -f "$BACKUP_CADDYFILE" ]] && cp "$CADDYFILE" "$BACKUP_CADDYFILE"
                     
-                    # 使用符合 Caddy V2 规范的多行格式写入
+                    # 仅写入 Caddyfile，由 sync 统一接管读取
                     echo -e "\n${domain} {\n    reverse_proxy ${upstream}\n}" >> "$CADDYFILE"
-                    echo "${domain} -> ${upstream}" >> "$PROXY_CONFIG_FILE"
-                    
                     systemctl restart caddy
                     
-                    # 增加重启状态校验机制
                     if systemctl is-active --quiet caddy; then
                         echo -e "${GREEN}代理已添加并成功生效: ${domain} -> ${upstream}${RESET}"
                     else
-                        echo -e "${RED}Caddy 重启失败！可能是域名 (${domain}) 未正确解析到本机 IP，请检查！${RESET}"
+                        echo -e "${RED}Caddy 重启失败！请检查域名配置。${RESET}"
                     fi
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             3)
+                # 每次查看前强制执行同步解析
+                sync_caddy_records
                 if [ -s "$PROXY_CONFIG_FILE" ]; then
                     lineno=0
                     while IFS= read -r line; do
@@ -468,20 +485,22 @@ manage_caddy() {
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             4)
+                # 每次删除前强制执行同步解析
+                sync_caddy_records
                 if [ -s "$PROXY_CONFIG_FILE" ]; then
                     lineno=0; while IFS= read -r line; do lineno=$((lineno+1)); echo "  ${lineno}) ${line}"; done < "$PROXY_CONFIG_FILE"
-                    read -p "输入删除编号: " proxy_number
+                    read -p "输入要删除的编号: " proxy_number
                     if [[ "$proxy_number" =~ ^[0-9]+$ ]]; then
-                        sed -i "${proxy_number}d" "$PROXY_CONFIG_FILE"
-                        cp "$BACKUP_CADDYFILE" "$CADDYFILE"
-                        while IFS= read -r line; do
-                            d=$(echo "$line" | awk -F' -> ' '{print $1}')
-                            u=$(echo "$line" | awk -F' -> ' '{print $2}')
-                            # 重建时同样使用多行规范格式
-                            echo -e "\n${d} {\n    reverse_proxy ${u}\n}" >> "$CADDYFILE"
-                        done < "$PROXY_CONFIG_FILE"
-                        systemctl restart caddy
-                        echo -e "${GREEN}已删除并刷新配置！${RESET}"
+                        # 提取要删除的域名
+                        target_domain=$(sed -n "${proxy_number}p" "$PROXY_CONFIG_FILE" | awk -F' -> ' '{print $1}')
+                        if [[ -n "$target_domain" ]]; then
+                            cp "$CADDYFILE" "$BACKUP_CADDYFILE"
+                            # 核心更新：使用 sed 精准删除该域名的配置块，不伤及无辜配置
+                            sed -i "/^${target_domain} {/,/}/d" "$CADDYFILE"
+                            systemctl restart caddy
+                            echo -e "${GREEN}已成功删除 [ ${target_domain} ] 的反向代理配置并刷新！${RESET}"
+                            sync_caddy_records
+                        fi
                     fi
                 else
                     echo -e "${YELLOW}暂无代理记录可删除。${RESET}"
@@ -490,11 +509,7 @@ manage_caddy() {
             5)
                 echo -e "${YELLOW}正在重启 Caddy 服务...${RESET}"
                 systemctl restart caddy
-                if systemctl is-active --quiet caddy; then
-                    echo -e "${GREEN}Caddy 服务已成功重启！${RESET}"
-                else
-                    echo -e "${RED}Caddy 重启失败，请检查配置文件是否异常。${RESET}"
-                fi
+                if systemctl is-active --quiet caddy; then echo -e "${GREEN}Caddy 服务已成功重启！${RESET}"; else echo -e "${RED}Caddy 重启失败，请检查配置文件格式。${RESET}"; fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             6)
                 echo -e "${YELLOW}正在检查并更新 Caddy 核心版本...${RESET}"
