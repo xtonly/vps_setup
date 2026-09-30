@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.2 终极纯净版)
+# VPS 综合初始化与管理工具 (5.3 终极纯净版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # 修复：去除 Ookla Speedtest 强制 DNS 劫持，适配原生优质网络
 # 强化：Cloudflare Speed 完美容器化与原生 UA 伪装测速
@@ -433,7 +433,7 @@ manage_caddy() {
         echo -e "${MAGENTA}------------------------------------------------------${RESET}"
         echo "  1. 一键安装 Caddy"
         echo "  2. 配置并启用反向代理 (域名 -> 端口)"
-        echo "  3. 查看代理列表与状态 (自动同步 Caddyfile 真实数据)"
+        echo "  3. 查看代理列表与状态 (同步 Caddyfile 真实数据)"
         echo "  4. 删除指定的反向代理配置 (安全模式)"
         echo "  5. 重启 Caddy 服务"
         echo "  6. 更新 Caddy 核心版本"
@@ -489,8 +489,12 @@ manage_caddy() {
                 sync_caddy_records
                 if [ -s "$PROXY_CONFIG_FILE" ]; then
                     lineno=0; while IFS= read -r line; do lineno=$((lineno+1)); echo "  ${lineno}) ${line}"; done < "$PROXY_CONFIG_FILE"
-                    read -p "输入要删除的编号: " proxy_number
-                    if [[ "$proxy_number" =~ ^[0-9]+$ ]]; then
+                    # 增加取消提示
+                    read -p "输入要删除的编号 (输入 0 取消操作): " proxy_number
+                    
+                    if [[ "$proxy_number" == "0" ]]; then
+                        echo -e "${YELLOW}已取消删除操作。${RESET}"
+                    elif [[ "$proxy_number" =~ ^[1-9][0-9]*$ ]] && [ "$proxy_number" -le "$lineno" ]; then
                         # 提取要删除的域名
                         target_domain=$(sed -n "${proxy_number}p" "$PROXY_CONFIG_FILE" | awk -F' -> ' '{print $1}')
                         if [[ -n "$target_domain" ]]; then
@@ -501,6 +505,8 @@ manage_caddy() {
                             echo -e "${GREEN}已成功删除 [ ${target_domain} ] 的反向代理配置并刷新！${RESET}"
                             sync_caddy_records
                         fi
+                    else
+                        echo -e "${RED}无效输入，请输入正确的编号。${RESET}"
                     fi
                 else
                     echo -e "${YELLOW}暂无代理记录可删除。${RESET}"
@@ -1538,7 +1544,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.2                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.3                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
