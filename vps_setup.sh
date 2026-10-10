@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.4 终极纯净版)
+# VPS 综合初始化与管理工具 (5.5 终极纯净版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # 修复：去除 Ookla Speedtest 强制 DNS 劫持，适配原生优质网络
 # 强化：Cloudflare Speed 完美容器化与原生 UA 伪装测速
-# 新增：Caddy 官方源 402 报错灾备方案 (无缝切换 GitHub直装)
+# 新增：Caddy 官方源 402 灾备方案与版本号状态展示
 # ========================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -406,17 +406,14 @@ check_caddy_installed() { command -v caddy >/dev/null 2>&1; }
 check_port_running() { local p=$1; if ss -tuln | grep -q ":$p "; then echo -e "${GREEN}活跃${RESET}"; else echo -e "${RED}离线${RESET}"; fi }
 
 manage_caddy() {
-    # 核心新增：实时解析 Caddyfile 并同步到代理记录文件
+    # 实时解析 Caddyfile 并同步到代理记录文件
     sync_caddy_records() {
         if [ -f "$CADDYFILE" ]; then
-            # 过滤掉注释行，提取带 { 的域名，以及 reverse_proxy 的转发地址
             grep -v '^[[:space:]]*#' "$CADDYFILE" | awk '
             /\{/ { 
-                # 获取第一列作为域名，并清理可能粘连的 { 符号
                 domain=$1; gsub(/\{/, "", domain); 
             }
             /reverse_proxy/ {
-                # 忽略默认的 :80 块和空块
                 if (domain != "" && domain != ":80") {
                     print domain " -> " $2
                 }
@@ -427,10 +424,23 @@ manage_caddy() {
     while true; do
         clear
         echo -e "${CYAN}=============== EasyCaddy 反向代理管理 ===============${RESET}"
+        
+        # 核心改进：自动提取 Caddy 版本号
+        local caddy_ver=""
+        if check_caddy_installed; then
+            caddy_ver=$(caddy version 2>/dev/null | awk '{print $1}')
+            [[ -n "$caddy_ver" ]] && caddy_ver=" (${caddy_ver})"
+        fi
+        
         caddy_status=$(systemctl is-active caddy 2>/dev/null)
-        if [ "$caddy_status" == "active" ]; then echo -e " ${BLUE}核心组件:${RESET} ${GREEN}已安装且运行中${RESET}"
-        elif check_caddy_installed; then echo -e " ${BLUE}核心组件:${RESET} ${YELLOW}已安装，但服务未运行${RESET}"
-        else echo -e " ${BLUE}核心组件:${RESET} ${RED}未安装${RESET}"; fi
+        if [ "$caddy_status" == "active" ]; then 
+            echo -e " ${BLUE}核心组件:${RESET} ${GREEN}已安装且运行中${WHITE}${caddy_ver}${RESET}"
+        elif check_caddy_installed; then 
+            echo -e " ${BLUE}核心组件:${RESET} ${YELLOW}已安装，但服务未运行${WHITE}${caddy_ver}${RESET}"
+        else 
+            echo -e " ${BLUE}核心组件:${RESET} ${RED}未安装${RESET}"
+        fi
+        
         echo -e "${MAGENTA}------------------------------------------------------${RESET}"
         echo "  1. 一键安装 Caddy"
         echo "  2. 配置并启用反向代理 (域名 -> 端口)"
@@ -482,7 +492,6 @@ manage_caddy() {
                     upstream="http://127.0.0.1:${port}"
                     [[ ! -f "$BACKUP_CADDYFILE" ]] && cp "$CADDYFILE" "$BACKUP_CADDYFILE"
                     
-                    # 仅写入 Caddyfile，由 sync 统一接管读取
                     echo -e "\n${domain} {\n    reverse_proxy ${upstream}\n}" >> "$CADDYFILE"
                     systemctl restart caddy
                     
@@ -494,7 +503,6 @@ manage_caddy() {
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             3)
-                # 每次查看前强制执行同步解析
                 sync_caddy_records
                 if [ -s "$PROXY_CONFIG_FILE" ]; then
                     lineno=0
@@ -509,21 +517,17 @@ manage_caddy() {
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             4)
-                # 每次删除前强制执行同步解析
                 sync_caddy_records
                 if [ -s "$PROXY_CONFIG_FILE" ]; then
                     lineno=0; while IFS= read -r line; do lineno=$((lineno+1)); echo "  ${lineno}) ${line}"; done < "$PROXY_CONFIG_FILE"
-                    # 增加取消提示
                     read -p "输入要删除的编号 (输入 0 取消操作): " proxy_number
                     
                     if [[ "$proxy_number" == "0" ]]; then
                         echo -e "${YELLOW}已取消删除操作。${RESET}"
                     elif [[ "$proxy_number" =~ ^[1-9][0-9]*$ ]] && [ "$proxy_number" -le "$lineno" ]; then
-                        # 提取要删除的域名
                         target_domain=$(sed -n "${proxy_number}p" "$PROXY_CONFIG_FILE" | awk -F' -> ' '{print $1}')
                         if [[ -n "$target_domain" ]]; then
                             cp "$CADDYFILE" "$BACKUP_CADDYFILE"
-                            # 核心更新：使用 sed 精准删除该域名的配置块，不伤及无辜配置
                             sed -i "/^${target_domain} {/,/}/d" "$CADDYFILE"
                             systemctl restart caddy
                             echo -e "${GREEN}已成功删除 [ ${target_domain} ] 的反向代理配置并刷新！${RESET}"
@@ -895,7 +899,7 @@ manage_tools() {
                     echo -e "${YELLOW}测速地址: ${WHITE}$PUBLIC_IPV4${RESET}"
                     echo -e "${YELLOW}客户端指令: ${WHITE}iperf3 -c $PUBLIC_IPV4 -p $iperf_port${RESET}"
                     echo -e "${MAGENTA}-------------------------------------${RESET}"
-                    echo -e "${CYAN}测速运行中... 输入 [q] 或 [0]停止并关闭端口${RESET}"
+                    echo -e "${CYAN}测速运行中... 输入 [q] 或 [0] 停止并关闭端口${RESET}"
                     iperf3 -s -p $iperf_port & 
                     IPERF_PID=$!
                     while true; do
@@ -941,7 +945,6 @@ manage_tools() {
                 echo -e "${MAGENTA}-------------------------------------${RESET}"
                 read -p "请选择: " sp_ch
                 if [ "$sp_ch" == "1" ]; then
-                    # 防御性清理：以防系统里还有之前残留的冲突版本
                     if dpkg -l | grep -qw speedtest; then
                         apt-get purge -y speedtest speedtest-cli >/dev/null 2>&1
                         rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
@@ -956,7 +959,6 @@ manage_tools() {
                         dl_url="https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-x86_64.tgz"
                     fi
                     
-                    # 创建临时独立目录，不污染系统环境
                     mkdir -p /root/.vps_speedtest
                     wget -qO /root/.vps_speedtest/speedtest.tgz "$dl_url"
                     tar -xzf /root/.vps_speedtest/speedtest.tgz -C /root/.vps_speedtest >/dev/null 2>&1
@@ -970,12 +972,10 @@ manage_tools() {
                     
                     clear
                     echo -e "${YELLOW}--> 正在进行网络预热与节点探活...${RESET}"
-                    # 强行让系统预先解析目标域名，防止 C++ 核心出现 DNS 寻址超时
                     ping -c 1 config.speedtest.net >/dev/null 2>&1
                     sleep 1
                     
                     echo -e "${YELLOW}--> 正在运行官方测速...${RESET}"
-                    # 直接运行绿色版二进制文件
                     /root/.vps_speedtest/speedtest --accept-license --accept-gdpr
                     
                     echo -e "${MAGENTA}-------------------------------------${RESET}"
@@ -1175,10 +1175,7 @@ manage_tools() {
                         echo "" && read -n 1 -s -r -p "按任意键返回..."
                     else
                         echo -e "${YELLOW}--> 正在启动临时 Alpine 容器执行测速... (按 Ctrl+C 随时终止/测试完成按 Ctrl+C 返回)${RESET}"
-                        # 在超轻量 alpine 容器内拉取预编译的核心文件并智能寻找可执行文件运行
                         docker run --rm -it alpine sh -c 'apk add --no-cache curl tar xz >/dev/null 2>&1 && echo "--> 正在拉取 cloudflare-speed-cli 核心..." && arch=$(uname -m) && if [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]; then file="cloudflare-speed-cli-aarch64-unknown-linux-musl.tar.xz"; else file="cloudflare-speed-cli-x86_64-unknown-linux-musl.tar.xz"; fi && mkdir -p cf-cli && curl -sL "https://github.com/kavehtehrani/cloudflare-speed-cli/releases/latest/download/$file" | tar xJ -C cf-cli && clear && BIN=$(find cf-cli -type f -name "cloudflare-speed-cli" | head -n 1) && chmod +x "$BIN" && exec "$BIN"'
-                        
-                        # 强制添加显式换行提示，防止 CLI 图形退出时吃掉终端输入符
                         echo -e "\n${GREEN}测速完毕！临时容器已销毁，宿主机保持绝对纯净。${RESET}"
                         echo "" && read -n 1 -s -r -p "按任意键返回..."
                     fi
@@ -1186,13 +1183,11 @@ manage_tools() {
                     echo -e "${YELLOW}--> 正在向 Cloudflare 边缘节点请求极限测试文件...${RESET}"
                     echo -e "${BLUE}提示: 已伪装浏览器 User-Agent 以绕过 CF WAF 拦截${RESET}"
                     
-                    # 强行注入 Mozilla User-Agent 与 Referer 头，彻底骗过 CF 拦截网关，稳定跑流
                     curl -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" -H "Referer: https://speed.cloudflare.com/" -# -w "%{speed_download} %{time_total}" -o /dev/null "https://speed.cloudflare.com/__down?bytes=524288000" | awk '{printf "\n==================================\n平均速度: %.2f MB/s\n总耗时: %.2f 秒\n==================================\n", $1/1048576, $2}'
                     
                     echo -e "${GREEN}下载跑流测试完成！${RESET}"
                     echo "" && read -n 1 -s -r -p "按任意键返回..."
                 fi
-                # 由于上方内部增加了更准确的 read 返回，这里跳过执行，避免双重等待
                 continue ;;
 
             0) return ;;
@@ -1219,13 +1214,11 @@ install_docker() {
             1)
             if ! command -v docker &> /dev/null; then
                 echo -e "${YELLOW}--> 正在尝试从官方源安装 Docker...${RESET}"
-                # 捕获官方脚本的执行状态
                 if curl -fsSL https://get.docker.com | bash -s docker; then
                     systemctl enable --now docker
                     echo -e "${GREEN}Docker 安装完成！${RESET}"
                 else
                     echo -e "${YELLOW}--> 官方源访问超时，正在尝试切换至阿里云镜像源...${RESET}"
-                    # 官方源失败后，利用官方脚本自带的 --mirror 参数走国内加速源
                     if curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun; then
                         systemctl enable --now docker
                         echo -e "${GREEN}Docker (阿里云源) 安装完成！${RESET}"
@@ -1567,7 +1560,6 @@ menu_docker_main() {
 # ==========================================
 main_menu() {
     while true; do
-        # 动态刷新 RAM 和 SSD 使用率
         RAM_TOTAL=$(free -m | awk '/Mem:/ {printf "%.1f GB", $2/1024}')
         RAM_USED=$(free -m | awk '/Mem:/ {printf "%.1f GB", $3/1024}')
         SWAP_TOTAL=$(free -m | awk '/Swap:/ {printf "%.1f GB", $2/1024}')
@@ -1580,7 +1572,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.4                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.5                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
