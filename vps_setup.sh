@@ -1,10 +1,11 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.3 终极纯净版)
+# VPS 综合初始化与管理工具 (5.4 终极纯净版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # 修复：去除 Ookla Speedtest 强制 DNS 劫持，适配原生优质网络
 # 强化：Cloudflare Speed 完美容器化与原生 UA 伪装测速
+# 新增：Caddy 官方源 402 报错灾备方案 (无缝切换 GitHub直装)
 # ========================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -445,10 +446,33 @@ manage_caddy() {
         case "$caddy_choice" in
             1)
                 if ! check_caddy_installed; then
-                    apt-get update -y && apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
-                    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-                    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
-                    apt-get update -y && apt-get install -y caddy
+                    echo -e "${YELLOW}--> 正在配置 Caddy 官方 Cloudsmith 源...${RESET}"
+                    apt-get update -y && apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl jq
+                    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg 2>/dev/null
+                    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
+                    
+                    if apt-get update -y && apt-get install -y caddy; then
+                        echo -e "${GREEN}Caddy 官方源安装成功！${RESET}"
+                    else
+                        echo -e "${RED}官方源访问受限 (402 错误)，立即启动灾备方案：直连 GitHub 拉取最新 .deb 镜像...${RESET}"
+                        rm -f /etc/apt/sources.list.d/caddy-stable.list
+                        apt-get update -y >/dev/null 2>&1
+                        
+                        local sys_arch=$(dpkg --print-architecture)
+                        local latest_ver=$(curl -sL https://api.github.com/repos/caddyserver/caddy/releases/latest | jq -r '.tag_name' | sed 's/v//')
+                        
+                        if [[ -n "$latest_ver" && "$latest_ver" != "null" ]]; then
+                            echo -e "${YELLOW}--> 正在下载 Caddy v${latest_ver} (${sys_arch}) ...${RESET}"
+                            wget -qO /root/caddy_fallback.deb "https://github.com/caddyserver/caddy/releases/download/v${latest_ver}/caddy_${latest_ver}_linux_${sys_arch}.deb"
+                            dpkg -i /root/caddy_fallback.deb
+                            apt-get install -f -y
+                            rm -f /root/caddy_fallback.deb
+                            systemctl enable --now caddy
+                            echo -e "${GREEN}灾备方案部署完成！Caddy 已成功运行。${RESET}"
+                        else
+                            echo -e "${RED}灾备拉取失败，可能是 GitHub API 遭限流，请稍后再试。${RESET}"
+                        fi
+                    fi
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             2)
@@ -519,9 +543,21 @@ manage_caddy() {
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             6)
                 echo -e "${YELLOW}正在检查并更新 Caddy 核心版本...${RESET}"
-                apt-get update -y && apt-get install --only-upgrade -y caddy
+                if [ -f "/etc/apt/sources.list.d/caddy-stable.list" ]; then
+                    apt-get update -y && apt-get install --only-upgrade -y caddy
+                else
+                    echo -e "${BLUE}检测到当前为灾备直装模式，将通过 GitHub 获取更新...${RESET}"
+                    apt-get install -y curl jq
+                    local sys_arch=$(dpkg --print-architecture)
+                    local latest_ver=$(curl -sL https://api.github.com/repos/caddyserver/caddy/releases/latest | jq -r '.tag_name' | sed 's/v//')
+                    if [[ -n "$latest_ver" && "$latest_ver" != "null" ]]; then
+                        wget -qO /root/caddy_update.deb "https://github.com/caddyserver/caddy/releases/download/v${latest_ver}/caddy_${latest_ver}_linux_${sys_arch}.deb"
+                        dpkg -i /root/caddy_update.deb
+                        rm -f /root/caddy_update.deb
+                    fi
+                fi
                 systemctl restart caddy
-                echo -e "${GREEN}Caddy 尝试更新至官方源最新版并已重启服务！${RESET}"
+                echo -e "${GREEN}Caddy 更新逻辑执行完毕，服务已重启！${RESET}"
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
             7)
                 systemctl stop caddy; apt-get remove --purge -y caddy; rm -f "$CADDYFILE" "$PROXY_CONFIG_FILE"
@@ -859,7 +895,7 @@ manage_tools() {
                     echo -e "${YELLOW}测速地址: ${WHITE}$PUBLIC_IPV4${RESET}"
                     echo -e "${YELLOW}客户端指令: ${WHITE}iperf3 -c $PUBLIC_IPV4 -p $iperf_port${RESET}"
                     echo -e "${MAGENTA}-------------------------------------${RESET}"
-                    echo -e "${CYAN}测速运行中... 输入 [q] 或 [0] 停止并关闭端口${RESET}"
+                    echo -e "${CYAN}测速运行中... 输入 [q] 或 [0]停止并关闭端口${RESET}"
                     iperf3 -s -p $iperf_port & 
                     IPERF_PID=$!
                     while true; do
@@ -1544,7 +1580,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.3                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.4                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
