@@ -939,18 +939,17 @@ manage_tools() {
             3)
                 clear
                 echo -e "${CYAN}========= Speedtest 官方绿色免安装版 =========${RESET}"
-                echo "  1. 立即运行测试 (测试完无痕销毁)"
-                echo "  2. 彻底清理历史通过 apt 安装的残留"
+                echo "  1. 立即运行测试 (默认 IPv4 优先 / 精准匹配本地节点)"
+                echo "  2. 强制使用 IPv6 运行测试"
+                echo "  3. 彻底清理历史通过 apt 安装的残留"
                 echo "  0. 返回上一级"
                 echo -e "${MAGENTA}-------------------------------------${RESET}"
                 read -p "请选择: " sp_ch
-                if [ "$sp_ch" == "1" ]; then
+                if [[ "$sp_ch" == "1" || "$sp_ch" == "2" ]]; then
                     if dpkg -l | grep -qw speedtest; then
                         apt-get purge -y speedtest speedtest-cli >/dev/null 2>&1
                         rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
                     fi
-                    
-                    # 清理之前可能残留的临时 hosts 标记
                     sed -i '/# === SPEEDTEST_HOSTS_TEMP ===/d' /etc/hosts 2>/dev/null
                     
                     echo -e "${YELLOW}--> 正在拉取 Ookla 官方纯净测速核心...${RESET}"
@@ -968,9 +967,9 @@ manage_tools() {
                     chmod +x /root/.vps_speedtest/speedtest
                     
                     clear
-                    echo -e "${YELLOW}--> 正在进行网络预热与节点探活...${RESET}"
+                    echo -e "${YELLOW}--> 正在进行网络预热与本地路由锁定...${RESET}"
                     
-                    # 仅在系统无有效 nameserver 或为 127.0.0.53 stub 时临时提供公共 DNS
+                    # 临时确保纯净 DNS
                     local dns_temp_fixed=0
                     if grep -q "127.0.0.53" /etc/resolv.conf 2>/dev/null || ! grep -q "^nameserver" /etc/resolv.conf 2>/dev/null; then
                         cp -a /etc/resolv.conf /root/.vps_speedtest/resolv.conf.bak 2>/dev/null
@@ -990,29 +989,51 @@ manage_tools() {
                     }
                     trap 'restore_speedtest_dns' INT TERM
 
+                    # 核心：识别并锁定 IPv4 / IPv6 源地址 (解决静态二进制无视 gai.conf 强行走绕路 IPv6 的问题)
+                    local ookla_bind=""
+                    local py_bind=""
+                    local ls_bind=""
+                    local v4_addr=$(ip -4 route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' | head -n 1)
+                    local v6_addr=$(ip -6 route get 2606:4700:4700::1111 2>/dev/null | grep -oP 'src \K\S+' | head -n 1)
+
+                    if [[ "$sp_ch" == "1" && -n "$v4_addr" ]]; then
+                        echo -e "${GREEN}--> 已强制锁定本机 IPv4 出口 (${v4_addr})，精准匹配本地最近测速节点！${RESET}"
+                        ookla_bind="-i $v4_addr"
+                        py_bind="--source $v4_addr"
+                        ls_bind="--4"
+                    elif [[ "$sp_ch" == "2" && -n "$v6_addr" ]]; then
+                        echo -e "${GREEN}--> 已强制锁定本机 IPv6 出口 (${v6_addr})！${RESET}"
+                        ookla_bind="-i $v6_addr"
+                        py_bind="--source $v6_addr"
+                        ls_bind="--6"
+                    fi
+
                     echo -e "${YELLOW}--> 正在运行官方测速...${RESET}"
-                    # 尝试 1: 运行 Ookla 官方 CLI
-                    if ! /root/.vps_speedtest/speedtest --accept-license --accept-gdpr 2>/root/.vps_speedtest/err.log; then
-                        cat /root/.vps_speedtest/err.log
-                        echo -e "\n${YELLOW}--> [智能破盾] 检测到 Ookla WAF 拦截 (403) 或静态解析异常，正在启用【高仿真 UA 破盾版】测速核心...${RESET}"
+                    # 第 1 层：运行 Ookla 官方 CLI (带源 IP 绑定)
+                    if ! /root/.vps_speedtest/speedtest --accept-license --accept-gdpr $ookla_bind 2>/root/.vps_speedtest/err.log; then
+                        echo -e "${YELLOW}--> [智能切换] 官方 C++ 核心受阻，正在启用【Speedtest.net 原生 IPv4 破盾核心】...${RESET}"
                         
                         if ! command -v python3 &>/dev/null; then
                             apt-get update -y >/dev/null 2>&1 && apt-get install -y python3 >/dev/null 2>&1
                         fi
                         
                         curl -sL "https://raw.githubusercontent.com/sivel/speedtest-cli/master/speedtest.py" -o /root/.vps_speedtest/speedtest.py
-                        # 核心破盾：伪装现代 Chrome 浏览器 User-Agent 并强制 HTTPS，绕过 Speedtest 403 Forbidden 拦截
-                        sed -i 's/def build_user_agent():/def build_user_agent():\n    return "Mozilla\/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit\/537.36 (KHTML, like Gecko) Chrome\/131.0.0.0 Safari\/537.36"/g' /root/.vps_speedtest/speedtest.py
-                        
-                        if ! python3 /root/.vps_speedtest/speedtest.py --secure; then
-                            echo -e "\n${YELLOW}--> [终极容灾] 当前机房 IP 被 Speedtest 官方全线封锁 (403)，自动切换至【LibreSpeed 全球测速引擎】...${RESET}"
+                        # 安全注入 Chrome UA 绕过 403 (使用 python 自身语法替换，绝不触发 SyntaxError)
+                        python3 -c '
+with open("/root/.vps_speedtest/speedtest.py", "r") as f: s = f.read()
+s = s.replace("def build_user_agent():", "def build_user_agent():\n    return \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\"\n    ")
+with open("/root/.vps_speedtest/speedtest.py", "w") as f: f.write(s)
+'
+                        # 第 2 层：运行 Speedtest.py (连台湾本地 Speedtest.net 节点)
+                        if ! python3 /root/.vps_speedtest/speedtest.py --secure $py_bind; then
+                            echo -e "\n${YELLOW}--> [终极容灾] 正在切换至【LibreSpeed 全球测速引擎】...${RESET}"
                             local ls_arch="amd64"
                             [[ "$sys_arch" == "aarch64" || "$sys_arch" == "arm64" ]] && ls_arch="arm64"
                             local ls_url=$(curl -sL "https://api.github.com/repos/librespeed/speedtest-cli/releases/latest" | jq -r ".assets[] | select(.name | test(\"linux_${ls_arch}\")) | .browser_download_url" 2>/dev/null | head -n 1)
                             [[ -z "$ls_url" || "$ls_url" == "null" ]] && ls_url="https://github.com/librespeed/speedtest-cli/releases/download/v1.0.11/librespeed-cli_1.0.11_linux_${ls_arch}.tar.gz"
                             curl -sL "$ls_url" | tar xz -C /root/.vps_speedtest >/dev/null 2>&1
                             chmod +x /root/.vps_speedtest/librespeed-cli
-                            /root/.vps_speedtest/librespeed-cli
+                            /root/.vps_speedtest/librespeed-cli $ls_bind
                         fi
                     fi
                     
@@ -1025,7 +1046,7 @@ manage_tools() {
                         rm -rf /root/.vps_speedtest
                         echo -e "${GREEN}测速核心已无痕销毁，不留任何系统垃圾！${RESET}"
                     fi
-                elif [ "$sp_ch" == "2" ]; then
+                elif [ "$sp_ch" == "3" ]; then
                     apt-get purge -y speedtest speedtest-cli >/dev/null 2>&1
                     rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
                     rm -rf /root/.vps_speedtest
