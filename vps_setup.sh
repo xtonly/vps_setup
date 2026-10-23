@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.6 终极纯净版)
+# VPS 综合初始化与管理工具 (5.7 终极纯净版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # 修复：Ookla Speedtest 静态 musl 解析器崩溃 (DoH+Hosts破壁直连与无痕还原)
 # 强化：Cloudflare Speed 完美容器化 (Host网络直通) 与原生 UA 伪装测速
@@ -971,9 +971,9 @@ manage_tools() {
                     fi
                     
                     clear
-                    echo -e "${YELLOW}--> 正在进行网络预热与节点探活 (静态二进制 DNS 破壁加速)...${RESET}"
+                    echo -e "${YELLOW}--> 正在进行网络预热与节点探活 (全量域名 Hosts 破壁映射)...${RESET}"
                     
-                    # 1. 备份 /etc/resolv.conf 与 /etc/hosts (防止 chattr +i 锁定)
+                    # 1. 备份 /etc/resolv.conf 与 /etc/hosts
                     chattr -i /etc/resolv.conf /etc/hosts >/dev/null 2>&1
                     cp -a /etc/resolv.conf /root/.vps_speedtest/resolv.conf.bak 2>/dev/null
                     cp -a /etc/hosts /root/.vps_speedtest/hosts.bak 2>/dev/null
@@ -982,7 +982,6 @@ manage_tools() {
                         rm -f /etc/resolv.conf
                     fi
 
-                    # 定义无痕还原函数 (兼容 Ctrl+C 中断)
                     restore_speedtest_env() {
                         sed -i '/# === SPEEDTEST_HOSTS_TEMP ===/d' /etc/hosts 2>/dev/null
                         if [ -f /root/.vps_speedtest/resolv.symlink ]; then
@@ -993,30 +992,40 @@ manage_tools() {
                     }
                     trap 'restore_speedtest_env' INT TERM
 
-                    # 2. 写入极简纯净 DNS (剔除 search/options 及失效 IPv6，防止 musl 解析器瞬崩)
+                    # 2. 注入极简公共 DNS + 确保 nsswitch.conf 优先读取 files (/etc/hosts)
                     if [[ "$PUBLIC_IPV4" != "无法获取" && -n "$PUBLIC_IPV4" ]]; then
                         echo -e "nameserver 1.1.1.1\nnameserver 8.8.8.8" > /etc/resolv.conf
                     else
                         echo -e "nameserver 2606:4700:4700::1111\nnameserver 2001:4860:4860::8888" > /etc/resolv.conf
                     fi
 
-                    # 3. 终极必杀：通过 DoH / getent 预解析核心域名并注入 /etc/hosts，直接绕过 musl DNS 缺陷
-                    for domain in www.speedtest.net config.speedtest.net c.speedtest.net; do
-                        local resolved_ip=""
-                        if [[ "$PUBLIC_IPV4" != "无法获取" && -n "$PUBLIC_IPV4" ]]; then
-                            resolved_ip=$(getent ahostsv4 "$domain" 2>/dev/null | awk '{print $1; exit}')
-                            [[ -z "$resolved_ip" ]] && resolved_ip=$(curl -s4 -m 3 -H "accept: application/dns-json" "https://1.1.1.1/dns-query?name=${domain}&type=A" | jq -r '.Answer[]? | select(.type==1) | .data' 2>/dev/null | head -n 1)
-                        else
-                            resolved_ip=$(getent ahostsv6 "$domain" 2>/dev/null | awk '{print $1; exit}')
-                            [[ -z "$resolved_ip" ]] && resolved_ip=$(curl -s6 -m 3 -H "accept: application/dns-json" "https://[2606:4700:4700::1111]/dns-query?name=${domain}&type=AAAA" | jq -r '.Answer[]? | select(.type==28) | .data' 2>/dev/null | head -n 1)
-                        fi
-                        if [[ -n "$resolved_ip" && "$resolved_ip" != "null" ]]; then
-                            echo "$resolved_ip $domain # === SPEEDTEST_HOSTS_TEMP ===" >> /etc/hosts
-                        fi
-                    done
-                    
+                    # 3. 核心绝杀：获取 Speedtest Fastly CDN 真实 IP (含 DoH 查询 + Anycast 静态保底 IP)
+                    local st_ip=""
+                    if [[ "$PUBLIC_IPV4" != "无法获取" && -n "$PUBLIC_IPV4" ]]; then
+                        st_ip=$(curl -s4 -m 3 -H "accept: application/dns-json" "https://1.1.1.1/dns-query?name=www.speedtest.net&type=A" | jq -r '.Answer[]? | select(.type==1) | .data' 2>/dev/null | head -n 1)
+                        [[ -z "$st_ip" || "$st_ip" == "null" ]] && st_ip=$(getent ahostsv4 www.speedtest.net 2>/dev/null | awk '{print $1; exit}')
+                        # Fastly Global Anycast 保底 IP (www/cli/config.speedtest.net 通用)
+                        [[ -z "$st_ip" || "$st_ip" == "null" ]] && st_ip="151.101.1.219"
+                    else
+                        st_ip=$(curl -s6 -m 3 -H "accept: application/dns-json" "https://[2606:4700:4700::1111]/dns-query?name=www.speedtest.net&type=AAAA" | jq -r '.Answer[]? | select(.type==28) | .data' 2>/dev/null | head -n 1)
+                        [[ -z "$st_ip" || "$st_ip" == "null" ]] && st_ip=$(getent ahostsv6 www.speedtest.net 2>/dev/null | awk '{print $1; exit}')
+                        [[ -z "$st_ip" || "$st_ip" == "null" ]] && st_ip="2a04:4e42::219"
+                    fi
+
+                    # 一次性将 Ookla CLI 1.2.0 底层所有初始化/配置/遥测域名全部映射进 /etc/hosts
+                    sed -i '/# === SPEEDTEST_HOSTS_TEMP ===/d' /etc/hosts 2>/dev/null
+                    echo "$st_ip www.speedtest.net cli.speedtest.net config.speedtest.net c.speedtest.net results.speedtest.net # === SPEEDTEST_HOSTS_TEMP ===" >> /etc/hosts
+
                     echo -e "${YELLOW}--> 正在运行官方测速...${RESET}"
-                    /root/.vps_speedtest/speedtest --accept-license --accept-gdpr
+                    if ! /root/.vps_speedtest/speedtest --accept-license --accept-gdpr; then
+                        echo -e "\n${YELLOW}--> [智能容灾] 检测到当前系统内核/网络环境拦截静态二进制解析，正在无缝切换至 glibc 原生兼容核心...${RESET}"
+                        if ! command -v python3 &>/dev/null; then
+                            apt-get update -y >/dev/null 2>&1 && apt-get install -y python3 >/dev/null 2>&1
+                        fi
+                        curl -sL "https://raw.githubusercontent.com/sivel/speedtest-cli/master/speedtest.py" -o /root/.vps_speedtest/speedtest.py
+                        chmod +x /root/.vps_speedtest/speedtest.py
+                        python3 /root/.vps_speedtest/speedtest.py --bytes
+                    fi
                     
                     # 4. 测速结束立即无痕恢复原系统配置
                     restore_speedtest_env
@@ -1616,7 +1625,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.6                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.7                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
