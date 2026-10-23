@@ -989,43 +989,168 @@ manage_tools() {
                     }
                     trap 'restore_speedtest_dns' INT TERM
 
-                    # 核心：识别并锁定 IPv4 / IPv6 源地址 (解决静态二进制无视 gai.conf 强行走绕路 IPv6 的问题)
+                    # 识别本机网卡路由 IP 与公网展示 IP (兼容 NAT 机器与直通机器)
                     local ookla_bind=""
                     local py_bind=""
-                    local ls_bind=""
-                    local v4_addr=$(ip -4 route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' | head -n 1)
-                    local v6_addr=$(ip -6 route get 2606:4700:4700::1111 2>/dev/null | grep -oP 'src \K\S+' | head -n 1)
+                    local curl_bind="-4"
+                    local v4_src=$(ip -4 route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' | head -n 1)
+                    local v6_src=$(ip -6 route get 2606:4700:4700::1111 2>/dev/null | grep -oP 'src \K\S+' | head -n 1)
 
-                    if [[ "$sp_ch" == "1" && -n "$v4_addr" ]]; then
-                        echo -e "${GREEN}--> 已强制锁定本机 IPv4 出口 (${v4_addr})，精准匹配本地最近测速节点！${RESET}"
-                        ookla_bind="-i $v4_addr"
-                        py_bind="--source $v4_addr"
-                        ls_bind="--4"
-                    elif [[ "$sp_ch" == "2" && -n "$v6_addr" ]]; then
-                        echo -e "${GREEN}--> 已强制锁定本机 IPv6 出口 (${v6_addr})！${RESET}"
-                        ookla_bind="-i $v6_addr"
-                        py_bind="--source $v6_addr"
-                        ls_bind="--6"
+                    if [[ "$sp_ch" == "1" && -n "$v4_src" ]]; then
+                        if [[ "$v4_src" == "$PUBLIC_IPV4" || "$PUBLIC_IPV4" == "无法获取" ]]; then
+                            echo -e "${GREEN}--> 已强制锁定本机 IPv4 出口 (${v4_src})，精准匹配本地最近测速节点！${RESET}"
+                        else
+                            echo -e "${GREEN}--> 已强制锁定本机 IPv4 出口 (公网: ${PUBLIC_IPV4} / 网卡: ${v4_src})，精准匹配本地最近测速节点！${RESET}"
+                        fi
+                        ookla_bind="-i $v4_src"
+                        py_bind="--source $v4_src"
+                        curl_bind="-4"
+                    elif [[ "$sp_ch" == "2" && -n "$v6_src" ]]; then
+                        echo -e "${GREEN}--> 已强制锁定本机 IPv6 出口 (${PUBLIC_IPV6})！${RESET}"
+                        ookla_bind="-i $v6_src"
+                        py_bind="--source $v6_src"
+                        curl_bind="-6"
                     fi
 
                     echo -e "${YELLOW}--> 正在运行官方测速...${RESET}"
-                    # 第 1 层：运行 Ookla 官方 CLI (带源 IP 绑定)
+                    # 第 1 层：运行 Ookla 官方 CLI
                     if ! /root/.vps_speedtest/speedtest --accept-license --accept-gdpr $ookla_bind 2>/root/.vps_speedtest/err.log; then
-                        echo -e "${YELLOW}--> [智能切换] 官方 C++ 核心受阻，正在启用【Speedtest.net 原生 IPv4 破盾核心】...${RESET}"
+                        echo -e "${YELLOW}--> [智能破盾] 当前 IP 被 Speedtest 主站 WAF 拦截 (403)，正在启动【越障直连本地节点引擎】...${RESET}"
                         
                         if ! command -v python3 &>/dev/null; then
                             apt-get update -y >/dev/null 2>&1 && apt-get install -y python3 >/dev/null 2>&1
                         fi
-                        
-                        curl -sL "https://raw.githubusercontent.com/sivel/speedtest-cli/master/speedtest.py" -o /root/.vps_speedtest/speedtest.py
-                        # 安全注入 Chrome UA 绕过 403 (使用 python 自身语法替换，绝不触发 SyntaxError)
-                        python3 -c '
-with open("/root/.vps_speedtest/speedtest.py", "r") as f: s = f.read()
-s = s.replace("def build_user_agent():", "def build_user_agent():\n    return \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\"\n    ")
-with open("/root/.vps_speedtest/speedtest.py", "w") as f: f.write(s)
-'
-                        # 第 2 层：运行 Speedtest.py (连台湾本地 Speedtest.net 节点)
-                        if ! python3 /root/.vps_speedtest/speedtest.py --secure $py_bind; then
+
+                        # 编写高精度本地节点直连测速脚本 (支持绕过主站 403，直接就近匹配台湾 Chief/Hinet、香港、日本、新、美欧等真实 Ookla 节点)
+                        cat > /root/.vps_speedtest/direct_ookla.py << 'EOF'
+import urllib.request, urllib.parse, ssl, json, time, sys, socket, concurrent.futures
+
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Referer": "https://www.speedtest.net/",
+    "Origin": "https://www.speedtest.net"
+}
+
+# 亚太与全球核心地区黄金 Ookla 节点池 (当主站 API 403 时，自动按延迟毫秒级优选最近本地节点，含台北 Chief Telecom 3967 等)
+FALLBACK_SERVERS = [
+    {"id": "3967", "name": "Taipei", "sponsor": "Chief Telecom", "host": "tp-speedtest.chief.com.tw:8080", "url": "http://tp-speedtest.chief.com.tw:8080/speedtest/upload.php"},
+    {"id": "18445", "name": "Taipei", "sponsor": "Chunghwa Mobile", "host": "speedtest.chtm.hinet.net:8080", "url": "http://speedtest.chtm.hinet.net:8080/speedtest/upload.php"},
+    {"id": "13506", "name": "Taoyuan", "sponsor": "Taiwan Fixed Network", "host": "tyo-speedtest.tfn.net.tw:8080", "url": "http://tyo-speedtest.tfn.net.tw:8080/speedtest/upload.php"},
+    {"id": "28912", "name": "Hong Kong", "sponsor": "FDCServers.net", "host": "lg-hk.fdcservers.net:8080", "url": "http://lg-hk.fdcservers.net:8080/speedtest/upload.php"},
+    {"id": "1536", "name": "Hong Kong", "sponsor": "STC", "host": "ookla-speedtest.stc.com.hk:8080", "url": "http://ookla-speedtest.stc.com.hk:8080/speedtest/upload.php"},
+    {"id": "48463", "name": "Tokyo", "sponsor": "IPA CyberLab", "host": "speed.coe.ad.jp:8080", "url": "http://speed.coe.ad.jp:8080/speedtest/upload.php"},
+    {"id": "13623", "name": "Singapore", "sponsor": "Singtel", "host": "speedtest.singnet.com.sg:8080", "url": "http://speedtest.singnet.com.sg:8080/speedtest/upload.php"},
+    {"id": "14236", "name": "Los Angeles, CA", "sponsor": "Frontier", "host": "losangeles.ca.speedtest.frontier.com:8080", "url": "http://losangeles.ca.speedtest.frontier.com:8080/speedtest/upload.php"},
+    {"id": "30907", "name": "Frankfurt", "sponsor": "23M GmbH", "host": "speedtest.23m.com:8080", "url": "http://speedtest.23m.com:8080/speedtest/upload.php"}
+]
+
+def get_servers():
+    # 尝试使用伪装浏览器头从 Speedtest JSON API 拉取本地最近节点列表
+    for api in [
+        "https://www.speedtest.net/api/js/servers?engine=js&limit=10&https_functional=true",
+        "https://c.speedtest.net/speedtest-servers-static.php"
+    ]:
+        try:
+            req = urllib.request.Request(api, headers=HEADERS)
+            with urllib.request.urlopen(req, timeout=5, context=ctx) as r:
+                text = r.read().decode("utf-8", errors="ignore")
+                if text.strip().startswith("["):
+                    data = json.loads(text)
+                    if data: return data[:8]
+        except Exception:
+            pass
+    return FALLBACK_SERVERS
+
+def tcp_ping(host_port):
+    host, port = (host_port.split(":") + ["8080"])[:2]
+    latencies = []
+    for _ in range(3):
+        t0 = time.perf_counter()
+        try:
+            with socket.create_connection((host, int(port)), timeout=1.5):
+                latencies.append((time.perf_counter() - t0) * 1000.0)
+        except Exception:
+            pass
+    if not latencies: return 9999.0, 0.0
+    avg = sum(latencies) / len(latencies)
+    jitter = max(latencies) - min(latencies) if len(latencies) > 1 else 0.1
+    return avg, jitter
+
+def run():
+    servers = get_servers()
+    best = None
+    best_ping, best_jitter = 9999.0, 0.0
+    for s in servers:
+        host = s.get("host") or urllib.parse.urlparse(s.get("url", "")).netloc
+        if not host: continue
+        p, j = tcp_ping(host)
+        if p < best_ping:
+            best_ping, best_jitter = p, j
+            best = s
+            best["host"] = host
+
+    if not best or best_ping >= 9999.0:
+        sys.exit(1)
+
+    base_url = best.get("url", f"http://{best['host']}/speedtest/upload.php").rsplit("/", 1)[0]
+    print(f"\n   Speedtest by Ookla (Direct Anti-403 Engine)\n")
+    print(f"      Server: {best.get('sponsor')} - {best.get('name')} (id: {best.get('id')})")
+    print(f"Idle Latency:   {best_ping:6.2f} ms   (jitter: {best_jitter:.2f}ms)")
+
+    # 多线程并发下载测试 (拉取 Ookla 节点 4000x4000 测速块)
+    dl_urls = [f"{base_url}/random4000x4000.jpg?x={time.time()}_{i}" for i in range(8)]
+    dl_bytes = 0
+    t_start = time.perf_counter()
+    def dl_worker(u):
+        nonlocal dl_bytes
+        try:
+            req = urllib.request.Request(u, headers=HEADERS)
+            with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+                while time.perf_counter() - t_start < 8.0:
+                    chunk = resp.read(65536)
+                    if not chunk: break
+                    dl_bytes += len(chunk)
+        except Exception:
+            pass
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+        list(ex.map(dl_worker, dl_urls))
+    dl_time = max(time.perf_counter() - t_start, 0.1)
+    dl_mbps = (dl_bytes * 8) / (dl_time * 1_000_000)
+    print(f"    Download: {dl_mbps:8.2f} Mbps (data used: {dl_bytes/1048576:.1f} MB)")
+
+    # 多线程并发上传测试
+    up_url = best.get("url", f"{base_url}/upload.php")
+    up_bytes = 0
+    payload = b"0" * (1024 * 1024 * 2) # 2MB per post
+    t_start = time.perf_counter()
+    def up_worker(_):
+        nonlocal up_bytes
+        while time.perf_counter() - t_start < 6.0:
+            try:
+                req = urllib.request.Request(up_url, data=payload, headers=HEADERS, method="POST")
+                with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+                    resp.read(128)
+                    up_bytes += len(payload)
+            except Exception:
+                break
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+        list(ex.map(up_worker, range(8)))
+    up_time = max(time.perf_counter() - t_start, 0.1)
+    up_mbps = (up_bytes * 8) / (up_time * 1_000_000)
+    print(f"      Upload: {up_mbps:8.2f} Mbps (data used: {up_bytes/1048576:.1f} MB)\n")
+
+if __name__ == "__main__":
+    run()
+EOF
+                        if ! python3 /root/.vps_speedtest/direct_ookla.py; then
                             echo -e "\n${YELLOW}--> [终极容灾] 正在切换至【LibreSpeed 全球测速引擎】...${RESET}"
                             local ls_arch="amd64"
                             [[ "$sys_arch" == "aarch64" || "$sys_arch" == "arm64" ]] && ls_arch="arm64"
@@ -1033,7 +1158,7 @@ with open("/root/.vps_speedtest/speedtest.py", "w") as f: f.write(s)
                             [[ -z "$ls_url" || "$ls_url" == "null" ]] && ls_url="https://github.com/librespeed/speedtest-cli/releases/download/v1.0.11/librespeed-cli_1.0.11_linux_${ls_arch}.tar.gz"
                             curl -sL "$ls_url" | tar xz -C /root/.vps_speedtest >/dev/null 2>&1
                             chmod +x /root/.vps_speedtest/librespeed-cli
-                            /root/.vps_speedtest/librespeed-cli $ls_bind
+                            /root/.vps_speedtest/librespeed-cli --4
                         fi
                     fi
                     
