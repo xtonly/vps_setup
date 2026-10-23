@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.7 终极纯净版)
+# VPS 综合初始化与管理工具 (5.6 终极纯净版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # 修复：Ookla Speedtest 静态 musl 解析器崩溃 (DoH+Hosts破壁直连与无痕还原)
 # 强化：Cloudflare Speed 完美容器化 (Host网络直通) 与原生 UA 伪装测速
@@ -950,6 +950,9 @@ manage_tools() {
                         rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
                     fi
                     
+                    # 清理之前可能残留的临时 hosts 标记
+                    sed -i '/# === SPEEDTEST_HOSTS_TEMP ===/d' /etc/hosts 2>/dev/null
+                    
                     echo -e "${YELLOW}--> 正在拉取 Ookla 官方纯净测速核心...${RESET}"
                     local sys_arch=$(uname -m)
                     local dl_url=""
@@ -964,71 +967,56 @@ manage_tools() {
                     tar -xzf /root/.vps_speedtest/speedtest.tgz -C /root/.vps_speedtest >/dev/null 2>&1
                     chmod +x /root/.vps_speedtest/speedtest
                     
-                    if [ ! -f "/root/.vps_speedtest/speedtest" ]; then
-                        echo -e "${RED}严重错误：核心文件拉取失败，请检查网络！${RESET}"
-                        echo "" && read -n 1 -s -r -p "按任意键返回..."
-                        continue
-                    fi
-                    
                     clear
-                    echo -e "${YELLOW}--> 正在进行网络预热与节点探活 (全量域名 Hosts 破壁映射)...${RESET}"
+                    echo -e "${YELLOW}--> 正在进行网络预热与节点探活...${RESET}"
                     
-                    # 1. 备份 /etc/resolv.conf 与 /etc/hosts
-                    chattr -i /etc/resolv.conf /etc/hosts >/dev/null 2>&1
-                    cp -a /etc/resolv.conf /root/.vps_speedtest/resolv.conf.bak 2>/dev/null
-                    cp -a /etc/hosts /root/.vps_speedtest/hosts.bak 2>/dev/null
-                    if [ -L /etc/resolv.conf ]; then
-                        readlink /etc/resolv.conf > /root/.vps_speedtest/resolv.symlink
-                        rm -f /etc/resolv.conf
+                    # 仅在系统无有效 nameserver 或为 127.0.0.53 stub 时临时提供公共 DNS
+                    local dns_temp_fixed=0
+                    if grep -q "127.0.0.53" /etc/resolv.conf 2>/dev/null || ! grep -q "^nameserver" /etc/resolv.conf 2>/dev/null; then
+                        cp -a /etc/resolv.conf /root/.vps_speedtest/resolv.conf.bak 2>/dev/null
+                        [ -L /etc/resolv.conf ] && readlink /etc/resolv.conf > /root/.vps_speedtest/resolv.symlink && rm -f /etc/resolv.conf
+                        echo -e "nameserver 1.1.1.1\nnameserver 8.8.8.8" > /etc/resolv.conf
+                        dns_temp_fixed=1
                     fi
 
-                    restore_speedtest_env() {
-                        sed -i '/# === SPEEDTEST_HOSTS_TEMP ===/d' /etc/hosts 2>/dev/null
-                        if [ -f /root/.vps_speedtest/resolv.symlink ]; then
-                            ln -sf "$(cat /root/.vps_speedtest/resolv.symlink)" /etc/resolv.conf 2>/dev/null
-                        elif [ -f /root/.vps_speedtest/resolv.conf.bak ]; then
-                            cp -a /root/.vps_speedtest/resolv.conf.bak /etc/resolv.conf 2>/dev/null
+                    restore_speedtest_dns() {
+                        if [ "$dns_temp_fixed" -eq 1 ]; then
+                            if [ -f /root/.vps_speedtest/resolv.symlink ]; then
+                                ln -sf "$(cat /root/.vps_speedtest/resolv.symlink)" /etc/resolv.conf 2>/dev/null
+                            elif [ -f /root/.vps_speedtest/resolv.conf.bak ]; then
+                                cp -a /root/.vps_speedtest/resolv.conf.bak /etc/resolv.conf 2>/dev/null
+                            fi
                         fi
                     }
-                    trap 'restore_speedtest_env' INT TERM
-
-                    # 2. 注入极简公共 DNS + 确保 nsswitch.conf 优先读取 files (/etc/hosts)
-                    if [[ "$PUBLIC_IPV4" != "无法获取" && -n "$PUBLIC_IPV4" ]]; then
-                        echo -e "nameserver 1.1.1.1\nnameserver 8.8.8.8" > /etc/resolv.conf
-                    else
-                        echo -e "nameserver 2606:4700:4700::1111\nnameserver 2001:4860:4860::8888" > /etc/resolv.conf
-                    fi
-
-                    # 3. 核心绝杀：获取 Speedtest Fastly CDN 真实 IP (含 DoH 查询 + Anycast 静态保底 IP)
-                    local st_ip=""
-                    if [[ "$PUBLIC_IPV4" != "无法获取" && -n "$PUBLIC_IPV4" ]]; then
-                        st_ip=$(curl -s4 -m 3 -H "accept: application/dns-json" "https://1.1.1.1/dns-query?name=www.speedtest.net&type=A" | jq -r '.Answer[]? | select(.type==1) | .data' 2>/dev/null | head -n 1)
-                        [[ -z "$st_ip" || "$st_ip" == "null" ]] && st_ip=$(getent ahostsv4 www.speedtest.net 2>/dev/null | awk '{print $1; exit}')
-                        # Fastly Global Anycast 保底 IP (www/cli/config.speedtest.net 通用)
-                        [[ -z "$st_ip" || "$st_ip" == "null" ]] && st_ip="151.101.1.219"
-                    else
-                        st_ip=$(curl -s6 -m 3 -H "accept: application/dns-json" "https://[2606:4700:4700::1111]/dns-query?name=www.speedtest.net&type=AAAA" | jq -r '.Answer[]? | select(.type==28) | .data' 2>/dev/null | head -n 1)
-                        [[ -z "$st_ip" || "$st_ip" == "null" ]] && st_ip=$(getent ahostsv6 www.speedtest.net 2>/dev/null | awk '{print $1; exit}')
-                        [[ -z "$st_ip" || "$st_ip" == "null" ]] && st_ip="2a04:4e42::219"
-                    fi
-
-                    # 一次性将 Ookla CLI 1.2.0 底层所有初始化/配置/遥测域名全部映射进 /etc/hosts
-                    sed -i '/# === SPEEDTEST_HOSTS_TEMP ===/d' /etc/hosts 2>/dev/null
-                    echo "$st_ip www.speedtest.net cli.speedtest.net config.speedtest.net c.speedtest.net results.speedtest.net # === SPEEDTEST_HOSTS_TEMP ===" >> /etc/hosts
+                    trap 'restore_speedtest_dns' INT TERM
 
                     echo -e "${YELLOW}--> 正在运行官方测速...${RESET}"
-                    if ! /root/.vps_speedtest/speedtest --accept-license --accept-gdpr; then
-                        echo -e "\n${YELLOW}--> [智能容灾] 检测到当前系统内核/网络环境拦截静态二进制解析，正在无缝切换至 glibc 原生兼容核心...${RESET}"
+                    # 尝试 1: 运行 Ookla 官方 CLI
+                    if ! /root/.vps_speedtest/speedtest --accept-license --accept-gdpr 2>/root/.vps_speedtest/err.log; then
+                        cat /root/.vps_speedtest/err.log
+                        echo -e "\n${YELLOW}--> [智能破盾] 检测到 Ookla WAF 拦截 (403) 或静态解析异常，正在启用【高仿真 UA 破盾版】测速核心...${RESET}"
+                        
                         if ! command -v python3 &>/dev/null; then
                             apt-get update -y >/dev/null 2>&1 && apt-get install -y python3 >/dev/null 2>&1
                         fi
+                        
                         curl -sL "https://raw.githubusercontent.com/sivel/speedtest-cli/master/speedtest.py" -o /root/.vps_speedtest/speedtest.py
-                        chmod +x /root/.vps_speedtest/speedtest.py
-                        python3 /root/.vps_speedtest/speedtest.py --bytes
+                        # 核心破盾：伪装现代 Chrome 浏览器 User-Agent 并强制 HTTPS，绕过 Speedtest 403 Forbidden 拦截
+                        sed -i 's/build_user_agent()/("Mozilla\/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit\/537.36 (KHTML, like Gecko) Chrome\/131.0.0.0 Safari\/537.36")/g' /root/.vps_speedtest/speedtest.py
+                        
+                        if ! python3 /root/.vps_speedtest/speedtest.py --secure; then
+                            echo -e "\n${YELLOW}--> [终极容灾] 当前机房 IP 被 Speedtest 官方全线封锁 (403)，自动切换至【LibreSpeed 全球测速引擎】...${RESET}"
+                            local ls_arch="amd64"
+                            [[ "$sys_arch" == "aarch64" || "$sys_arch" == "arm64" ]] && ls_arch="arm64"
+                            local ls_url=$(curl -sL "https://api.github.com/repos/librespeed/speedtest-cli/releases/latest" | jq -r ".assets[] | select(.name | test(\"linux_${ls_arch}\")) | .browser_download_url" 2>/dev/null | head -n 1)
+                            [[ -z "$ls_url" || "$ls_url" == "null" ]] && ls_url="https://github.com/librespeed/speedtest-cli/releases/download/v1.0.11/librespeed-cli_1.0.11_linux_${ls_arch}.tar.gz"
+                            curl -sL "$ls_url" | tar xz -C /root/.vps_speedtest >/dev/null 2>&1
+                            chmod +x /root/.vps_speedtest/librespeed-cli
+                            /root/.vps_speedtest/librespeed-cli
+                        fi
                     fi
                     
-                    # 4. 测速结束立即无痕恢复原系统配置
-                    restore_speedtest_env
+                    restore_speedtest_dns
                     trap - INT TERM
                     
                     echo -e "${MAGENTA}-------------------------------------${RESET}"
@@ -1041,6 +1029,7 @@ manage_tools() {
                     apt-get purge -y speedtest speedtest-cli >/dev/null 2>&1
                     rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list
                     rm -rf /root/.vps_speedtest
+                    sed -i '/# === SPEEDTEST_HOSTS_TEMP ===/d' /etc/hosts 2>/dev/null
                     apt-get -y autoremove >/dev/null 2>&1
                     hash -r
                     echo -e "${GREEN}已彻底移除系统中所有历史遗留的 Speedtest 残留。${RESET}"
@@ -1625,7 +1614,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.7                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.6                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
