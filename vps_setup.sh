@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.5 终极纯净版)
+# VPS 综合初始化与管理工具 (5.6 终极纯净版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
-# 修复：去除 Ookla Speedtest 强制 DNS 劫持，适配原生优质网络
-# 强化：Cloudflare Speed 完美容器化与原生 UA 伪装测速
+# 修复：Ookla Speedtest 静态二进制 DNS 解析异常 (智能无痕回退恢复)
+# 强化：Cloudflare Speed 完美容器化 (Host网络直通) 与原生 UA 伪装测速
 # 新增：Caddy 官方源 402 灾备方案与版本号状态展示
 # ========================================================
 
@@ -960,7 +960,7 @@ manage_tools() {
                     fi
                     
                     mkdir -p /root/.vps_speedtest
-                    wget -qO /root/.vps_speedtest/speedtest.tgz "$dl_url"
+                    wget --no-check-certificate -qO /root/.vps_speedtest/speedtest.tgz "$dl_url" || curl -sL -o /root/.vps_speedtest/speedtest.tgz "$dl_url"
                     tar -xzf /root/.vps_speedtest/speedtest.tgz -C /root/.vps_speedtest >/dev/null 2>&1
                     chmod +x /root/.vps_speedtest/speedtest
                     
@@ -972,11 +972,33 @@ manage_tools() {
                     
                     clear
                     echo -e "${YELLOW}--> 正在进行网络预热与节点探活...${RESET}"
-                    ping -c 1 config.speedtest.net >/dev/null 2>&1
+                    # 智能 DNS 守护：解决 Ookla 静态二进制在 systemd-resolved (127.0.0.53) 或无有效 DNS 下报 HostNotFoundException
+                    local dns_temp_fixed=0
+                    if grep -q "127.0.0.53" /etc/resolv.conf 2>/dev/null || ! grep -q "^nameserver" /etc/resolv.conf 2>/dev/null || ! curl -sI --connect-timeout 4 "https://www.speedtest.net" >/dev/null 2>&1; then
+                        echo -e "${BLUE}--> 检测到本地 Stub DNS 或解析受阻，临时注入公共 DNS 保障静态二进制解析...${RESET}"
+                        cp -a /etc/resolv.conf /root/.vps_speedtest/resolv.conf.bak 2>/dev/null
+                        if [ -L /etc/resolv.conf ]; then
+                            ls -l /etc/resolv.conf | awk '{print $NF}' > /root/.vps_speedtest/resolv.symlink
+                            rm -f /etc/resolv.conf
+                        fi
+                        echo -e "nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 2606:4700:4700::1111\nnameserver 2001:4860:4860::8888" > /etc/resolv.conf
+                        dns_temp_fixed=1
+                    fi
+                    
+                    ping -c 1 www.speedtest.net >/dev/null 2>&1
                     sleep 1
                     
                     echo -e "${YELLOW}--> 正在运行官方测速...${RESET}"
                     /root/.vps_speedtest/speedtest --accept-license --accept-gdpr
+                    
+                    # 测速结束立即无痕恢复原系统 DNS 配置
+                    if [ "$dns_temp_fixed" -eq 1 ]; then
+                        if [ -f /root/.vps_speedtest/resolv.symlink ]; then
+                            ln -sf "$(cat /root/.vps_speedtest/resolv.symlink)" /etc/resolv.conf
+                        elif [ -f /root/.vps_speedtest/resolv.conf.bak ]; then
+                            cp -a /root/.vps_speedtest/resolv.conf.bak /etc/resolv.conf
+                        fi
+                    fi
                     
                     echo -e "${MAGENTA}-------------------------------------${RESET}"
                     read -p "测试完成。是否立即销毁测速核心以保持系统纯净? (y/n): " temp_un
@@ -1174,8 +1196,8 @@ manage_tools() {
                         echo -e "${YELLOW}请先在主菜单【7】中部署 Docker，或选择选项 2 进行原生测速。${RESET}"
                         echo "" && read -n 1 -s -r -p "按任意键返回..."
                     else
-                        echo -e "${YELLOW}--> 正在启动临时 Alpine 容器执行测速... (按 Ctrl+C 随时终止/测试完成按 Ctrl+C 返回)${RESET}"
-                        docker run --rm -it alpine sh -c 'apk add --no-cache curl tar xz >/dev/null 2>&1 && echo "--> 正在拉取 cloudflare-speed-cli 核心..." && arch=$(uname -m) && if [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]; then file="cloudflare-speed-cli-aarch64-unknown-linux-musl.tar.xz"; else file="cloudflare-speed-cli-x86_64-unknown-linux-musl.tar.xz"; fi && mkdir -p cf-cli && curl -sL "https://github.com/kavehtehrani/cloudflare-speed-cli/releases/latest/download/$file" | tar xJ -C cf-cli && clear && BIN=$(find cf-cli -type f -name "cloudflare-speed-cli" | head -n 1) && chmod +x "$BIN" && exec "$BIN"'
+                        echo -e "${YELLOW}--> 正在启动临时 Alpine 容器执行测速 (已启用 Host 网络直通与 DNS 加固)... (按 Ctrl+C 随时终止/返回)${RESET}"
+                        docker run --rm -it --net=host --dns=1.1.1.1 --dns=8.8.8.8 alpine sh -c 'apk add --no-cache curl tar xz >/dev/null 2>&1 && echo "--> 正在拉取 cloudflare-speed-cli 核心..." && arch=$(uname -m) && if [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]; then file="cloudflare-speed-cli-aarch64-unknown-linux-musl.tar.xz"; else file="cloudflare-speed-cli-x86_64-unknown-linux-musl.tar.xz"; fi && mkdir -p cf-cli && curl -sL "https://github.com/kavehtehrani/cloudflare-speed-cli/releases/latest/download/$file" | tar xJ -C cf-cli && clear && BIN=$(find cf-cli -type f -name "cloudflare-speed-cli" | head -n 1) && chmod +x "$BIN" && exec "$BIN"'
                         echo -e "\n${GREEN}测速完毕！临时容器已销毁，宿主机保持绝对纯净。${RESET}"
                         echo "" && read -n 1 -s -r -p "按任意键返回..."
                     fi
@@ -1572,7 +1594,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.5                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.6                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
