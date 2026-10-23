@@ -1002,7 +1002,7 @@ manage_tools() {
                         
                         curl -sL "https://raw.githubusercontent.com/sivel/speedtest-cli/master/speedtest.py" -o /root/.vps_speedtest/speedtest.py
                         # 核心破盾：伪装现代 Chrome 浏览器 User-Agent 并强制 HTTPS，绕过 Speedtest 403 Forbidden 拦截
-                        sed -i 's/build_user_agent()/("Mozilla\/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit\/537.36 (KHTML, like Gecko) Chrome\/131.0.0.0 Safari\/537.36")/g' /root/.vps_speedtest/speedtest.py
+                        sed -i 's/def build_user_agent():/def build_user_agent():\n    return "Mozilla\/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit\/537.36 (KHTML, like Gecko) Chrome\/131.0.0.0 Safari\/537.36"/g' /root/.vps_speedtest/speedtest.py
                         
                         if ! python3 /root/.vps_speedtest/speedtest.py --secure; then
                             echo -e "\n${YELLOW}--> [终极容灾] 当前机房 IP 被 Speedtest 官方全线封锁 (403)，自动切换至【LibreSpeed 全球测速引擎】...${RESET}"
