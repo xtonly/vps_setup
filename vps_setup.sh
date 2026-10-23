@@ -3,7 +3,7 @@
 # ========================================================
 # VPS 综合初始化与管理工具 (5.6 终极纯净版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
-# 修复：Ookla Speedtest 静态二进制 DNS 解析异常 (智能无痕回退恢复)
+# 修复：Ookla Speedtest 静态 musl 解析器崩溃 (DoH+Hosts破壁直连与无痕还原)
 # 强化：Cloudflare Speed 完美容器化 (Host网络直通) 与原生 UA 伪装测速
 # 新增：Caddy 官方源 402 灾备方案与版本号状态展示
 # ========================================================
@@ -971,34 +971,56 @@ manage_tools() {
                     fi
                     
                     clear
-                    echo -e "${YELLOW}--> 正在进行网络预热与节点探活...${RESET}"
-                    # 智能 DNS 守护：解决 Ookla 静态二进制在 systemd-resolved (127.0.0.53) 或无有效 DNS 下报 HostNotFoundException
-                    local dns_temp_fixed=0
-                    if grep -q "127.0.0.53" /etc/resolv.conf 2>/dev/null || ! grep -q "^nameserver" /etc/resolv.conf 2>/dev/null || ! curl -sI --connect-timeout 4 "https://www.speedtest.net" >/dev/null 2>&1; then
-                        echo -e "${BLUE}--> 检测到本地 Stub DNS 或解析受阻，临时注入公共 DNS 保障静态二进制解析...${RESET}"
-                        cp -a /etc/resolv.conf /root/.vps_speedtest/resolv.conf.bak 2>/dev/null
-                        if [ -L /etc/resolv.conf ]; then
-                            ls -l /etc/resolv.conf | awk '{print $NF}' > /root/.vps_speedtest/resolv.symlink
-                            rm -f /etc/resolv.conf
-                        fi
-                        echo -e "nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 2606:4700:4700::1111\nnameserver 2001:4860:4860::8888" > /etc/resolv.conf
-                        dns_temp_fixed=1
-                    fi
+                    echo -e "${YELLOW}--> 正在进行网络预热与节点探活 (静态二进制 DNS 破壁加速)...${RESET}"
                     
-                    ping -c 1 www.speedtest.net >/dev/null 2>&1
-                    sleep 1
+                    # 1. 备份 /etc/resolv.conf 与 /etc/hosts (防止 chattr +i 锁定)
+                    chattr -i /etc/resolv.conf /etc/hosts >/dev/null 2>&1
+                    cp -a /etc/resolv.conf /root/.vps_speedtest/resolv.conf.bak 2>/dev/null
+                    cp -a /etc/hosts /root/.vps_speedtest/hosts.bak 2>/dev/null
+                    if [ -L /etc/resolv.conf ]; then
+                        readlink /etc/resolv.conf > /root/.vps_speedtest/resolv.symlink
+                        rm -f /etc/resolv.conf
+                    fi
+
+                    # 定义无痕还原函数 (兼容 Ctrl+C 中断)
+                    restore_speedtest_env() {
+                        sed -i '/# === SPEEDTEST_HOSTS_TEMP ===/d' /etc/hosts 2>/dev/null
+                        if [ -f /root/.vps_speedtest/resolv.symlink ]; then
+                            ln -sf "$(cat /root/.vps_speedtest/resolv.symlink)" /etc/resolv.conf 2>/dev/null
+                        elif [ -f /root/.vps_speedtest/resolv.conf.bak ]; then
+                            cp -a /root/.vps_speedtest/resolv.conf.bak /etc/resolv.conf 2>/dev/null
+                        fi
+                    }
+                    trap 'restore_speedtest_env' INT TERM
+
+                    # 2. 写入极简纯净 DNS (剔除 search/options 及失效 IPv6，防止 musl 解析器瞬崩)
+                    if [[ "$PUBLIC_IPV4" != "无法获取" && -n "$PUBLIC_IPV4" ]]; then
+                        echo -e "nameserver 1.1.1.1\nnameserver 8.8.8.8" > /etc/resolv.conf
+                    else
+                        echo -e "nameserver 2606:4700:4700::1111\nnameserver 2001:4860:4860::8888" > /etc/resolv.conf
+                    fi
+
+                    # 3. 终极必杀：通过 DoH / getent 预解析核心域名并注入 /etc/hosts，直接绕过 musl DNS 缺陷
+                    for domain in www.speedtest.net config.speedtest.net c.speedtest.net; do
+                        local resolved_ip=""
+                        if [[ "$PUBLIC_IPV4" != "无法获取" && -n "$PUBLIC_IPV4" ]]; then
+                            resolved_ip=$(getent ahostsv4 "$domain" 2>/dev/null | awk '{print $1; exit}')
+                            [[ -z "$resolved_ip" ]] && resolved_ip=$(curl -s4 -m 3 -H "accept: application/dns-json" "https://1.1.1.1/dns-query?name=${domain}&type=A" | jq -r '.Answer[]? | select(.type==1) | .data' 2>/dev/null | head -n 1)
+                        else
+                            resolved_ip=$(getent ahostsv6 "$domain" 2>/dev/null | awk '{print $1; exit}')
+                            [[ -z "$resolved_ip" ]] && resolved_ip=$(curl -s6 -m 3 -H "accept: application/dns-json" "https://[2606:4700:4700::1111]/dns-query?name=${domain}&type=AAAA" | jq -r '.Answer[]? | select(.type==28) | .data' 2>/dev/null | head -n 1)
+                        fi
+                        if [[ -n "$resolved_ip" && "$resolved_ip" != "null" ]]; then
+                            echo "$resolved_ip $domain # === SPEEDTEST_HOSTS_TEMP ===" >> /etc/hosts
+                        fi
+                    done
                     
                     echo -e "${YELLOW}--> 正在运行官方测速...${RESET}"
                     /root/.vps_speedtest/speedtest --accept-license --accept-gdpr
                     
-                    # 测速结束立即无痕恢复原系统 DNS 配置
-                    if [ "$dns_temp_fixed" -eq 1 ]; then
-                        if [ -f /root/.vps_speedtest/resolv.symlink ]; then
-                            ln -sf "$(cat /root/.vps_speedtest/resolv.symlink)" /etc/resolv.conf
-                        elif [ -f /root/.vps_speedtest/resolv.conf.bak ]; then
-                            cp -a /root/.vps_speedtest/resolv.conf.bak /etc/resolv.conf
-                        fi
-                    fi
+                    # 4. 测速结束立即无痕恢复原系统配置
+                    restore_speedtest_env
+                    trap - INT TERM
                     
                     echo -e "${MAGENTA}-------------------------------------${RESET}"
                     read -p "测试完成。是否立即销毁测速核心以保持系统纯净? (y/n): " temp_un
