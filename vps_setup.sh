@@ -1,13 +1,13 @@
 #!/bin/bash
 
-# ========================================================
+# ======================================================================
 # VPS 综合初始化与管理工具 (5.7 终极纯净版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # 修复：Ookla Speedtest 静态 musl 解析器崩溃 (DoH+Hosts破壁直连与无痕还原)
 # 强化：Cloudflare Speed 完美容器化 (Host网络直通) 与原生 UA 伪装测速
 # 新增：Caddy 官方源 402 灾备方案与版本号状态展示
-# 升级：原生内嵌 Cloudflare DDNS 双模引擎 (兼容 API Token/Global Key + 自动建记录)
-# ========================================================
+# 升级：原生内嵌 Cloudflare DDNS 双模引擎 (兼容 API/Global + 自动建记录)
+# =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -1186,7 +1186,7 @@ EOF
             4)
                 clear
                 echo -e "${CYAN}========= Cloudflare DDNS 管理 (双模智能引擎) =========${RESET}"
-                echo "  1. 部署/更新 DDNS (支持 API Token / Global Key + 自动建记录)"
+                echo "  1. 部署/更新 DDNS (支持 API / Global + 自动建记录)"
                 echo "  2. 立即手动触发一次强制同步并查看详情"
                 echo "  3. 彻底卸载 DDNS 任务与缓存"
                 echo "  0. 返回上一级"
