@@ -1,11 +1,12 @@
 #!/bin/bash
 
 # ========================================================
-# VPS 综合初始化与管理工具 (5.6 终极纯净版)
+# VPS 综合初始化与管理工具 (5.7 终极纯净版)
 # 包含 BBR 状态实时探测、极致排版与 Docker 引擎全栈管理
 # 修复：Ookla Speedtest 静态 musl 解析器崩溃 (DoH+Hosts破壁直连与无痕还原)
 # 强化：Cloudflare Speed 完美容器化 (Host网络直通) 与原生 UA 伪装测速
 # 新增：Caddy 官方源 402 灾备方案与版本号状态展示
+# 升级：原生内嵌 Cloudflare DDNS 双模引擎 (兼容 API Token/Global Key + 自动建记录)
 # ========================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -861,7 +862,7 @@ manage_tools() {
         echo "  1. 测速节点: iperf3 (自定义端口/即开即关)"
         echo "  2. 简易面板: Docker SpeedTest (端口 2333)"
         echo "  3. 网络测速: speedtest (官方 CLI/可选卸载)"
-        echo "  4. 动态域名: Cloudflare DDNS (强制同步/卸载)"
+        echo "  4. 动态域名: Cloudflare DDNS (双模智能引擎/卸载)"
         echo "  5. 路由追踪: nexttrace (即时测试/可选卸载)"
         echo "  6. 路由监测: mtr (即时测试/可选卸载)"
         echo "  7. 修改系统 DNS 地址"
@@ -1184,31 +1185,117 @@ EOF
 
             4)
                 clear
-                echo -e "${CYAN}========= Cloudflare DDNS 管理 =========${RESET}"
-                echo "  1. 部署/更新 DDNS (强制首次同步)"
-                echo "  2. 彻底卸载 DDNS 任务"
+                echo -e "${CYAN}========= Cloudflare DDNS 管理 (双模智能引擎) =========${RESET}"
+                echo "  1. 部署/更新 DDNS (支持 API Token / Global Key + 自动建记录)"
+                echo "  2. 立即手动触发一次强制同步并查看详情"
+                echo "  3. 彻底卸载 DDNS 任务与缓存"
                 echo "  0. 返回上一级"
-                echo -e "${MAGENTA}----------------------------------------${RESET}"
+                echo -e "${MAGENTA}-------------------------------------------------------${RESET}"
                 read -p "请选择: " ddns_ch
                 if [ "$ddns_ch" == "1" ]; then
-                    apt update -y && apt install -y curl wget socat cron
-                    wget -N --no-check-certificate https://raw.githubusercontent.com/yulewang/cloudflare-api-v4-ddns/master/cf-v4-ddns.sh -O /root/cf-v4-ddns.sh
-                    read -p "API Key: " cf_key; read -p "根域名(example.com): " cf_zone; read -p "CF邮箱: " cf_user; read -p "完整子域名(ddns.example.com): " cf_host
-                    if [[ -n "$cf_key" && -n "$cf_host" ]]; then
-                        sed -i "s/^CFKEY=.*/CFKEY=\"$cf_key\"/" /root/cf-v4-ddns.sh
-                        sed -i "s/^CFZONE_NAME=.*/CFZONE_NAME=\"$cf_zone\"/" /root/cf-v4-ddns.sh
-                        sed -i "s/^CFUSER=.*/CFUSER=\"$cf_user\"/" /root/cf-v4-ddns.sh
-                        sed -i "s/^CFRECORD_NAME=.*/CFRECORD_NAME=\"$cf_host\"/" /root/cf-v4-ddns.sh
+                    apt update -y >/dev/null 2>&1 && apt install -y curl jq cron >/dev/null 2>&1
+                    read -p "API 密钥 (支持 API Token 如 cfut_... 或 Global API Key): " cf_key
+                    read -p "CF 邮箱 (使用 API Token 时可留空，使用 Global Key 必填): " cf_user
+                    read -p "根域名 (例如 aivps.net): " cf_zone
+                    read -p "完整子域名 (例如 hkt.aivps.net): " cf_host
+                    
+                    # 过滤可能误输入的空白字符或尖括号
+                    cf_key=$(echo "$cf_key" | tr -d ' <>\r\n')
+                    cf_user=$(echo "$cf_user" | tr -d ' \r\n')
+                    cf_zone=$(echo "$cf_zone" | tr -d ' \r\n')
+                    cf_host=$(echo "$cf_host" | tr -d ' \r\n')
+
+                    if [[ -n "$cf_key" && -n "$cf_zone" && -n "$cf_host" ]]; then
+                        cat > /root/cf-v4-ddns.sh <<EOF
+#!/bin/bash
+CFKEY="$cf_key"
+CFUSER="$cf_user"
+CFZONE_NAME="$cf_zone"
+CFRECORD_NAME="$cf_host"
+CFTTL=60
+PROXIED=false
+IP_FILE="/root/.cf_last_ipv4_\${CFRECORD_NAME}"
+
+# 1. 多源保底强制获取本机纯净公网 IPv4
+WAN_IP=\$(curl -s4m 5 https://ip.sb || curl -s4m 5 https://api.ipify.org || curl -s4m 5 http://ipv4.icanhazip.com)
+WAN_IP=\$(echo "\$WAN_IP" | tr -d '\r\n ')
+
+if [[ ! "\$WAN_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo -e "\033[1;31m[错误] 无法获取有效的本机公网 IPv4 地址！\033[0m"
+    exit 1
+fi
+
+# 2. 检查 IP 是否发生变动 (传入 -f 参数时强制更新)
+if [[ "\$1" != "-f" && -f "\$IP_FILE" ]]; then
+    OLD_IP=\$(cat "\$IP_FILE" 2>/dev/null)
+    if [[ "\$WAN_IP" == "\$OLD_IP" ]]; then
+        echo -e "\033[1;32m[跳过] IP 未发生变动 (\$WAN_IP)\033[0m"
+        exit 0
+    fi
+fi
+
+# 3. 智能识别鉴权模式：37位纯小写十六进制 + 邮箱 = Global API Key；其余均为 Bearer API Token
+if [[ "\$CFKEY" =~ ^[0-9a-f]{37}$ && -n "\$CFUSER" ]]; then
+    AUTH_HEADERS=(-H "X-Auth-Email: \$CFUSER" -H "X-Auth-Key: \$CFKEY")
+else
+    AUTH_HEADERS=(-H "Authorization: Bearer \$CFKEY")
+fi
+
+# 4. 获取根域名 Zone ID
+ZONE_RESP=\$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=\${CFZONE_NAME}" "\${AUTH_HEADERS[@]}" -H "Content-Type: application/json")
+ZONE_ID=\$(echo "\$ZONE_RESP" | jq -r '.result[0].id // empty')
+
+if [[ -z "\$ZONE_ID" ]]; then
+    echo -e "\033[1;31m[错误] 获取 Zone ID 失败！请检查根域名 (\${CFZONE_NAME}) 或 API Token 权限是否正确。\033[0m"
+    echo "Cloudflare 响应: \$(echo "\$ZONE_RESP" | jq -c '.errors')"
+    exit 1
+fi
+
+# 5. 查询子域名 Record ID (若不存在则自动创建 A 记录，存在则直接更新)
+REC_RESP=\$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/\${ZONE_ID}/dns_records?type=A&name=\${CFRECORD_NAME}" "\${AUTH_HEADERS[@]}" -H "Content-Type: application/json")
+RECORD_ID=\$(echo "\$REC_RESP" | jq -r '.result[0].id // empty')
+
+PAYLOAD="{\"type\":\"A\",\"name\":\"\${CFRECORD_NAME}\",\"content\":\"\${WAN_IP}\",\"ttl\":\${CFTTL},\"proxied\":\${PROXIED}}"
+
+if [[ -z "\$RECORD_ID" ]]; then
+    echo -e "\033[1;33m--> 未检测到现有 A 记录，正在自动创建 [\${CFRECORD_NAME}] -> \${WAN_IP} ...\033[0m"
+    UPDATE_RESP=\$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/\${ZONE_ID}/dns_records" "\${AUTH_HEADERS[@]}" -H "Content-Type: application/json" --data "\$PAYLOAD")
+else
+    echo -e "\033[1;33m--> 正在更新解析记录 [\${CFRECORD_NAME}] -> \${WAN_IP} ...\033[0m"
+    UPDATE_RESP=\$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/\${ZONE_ID}/dns_records/\${RECORD_ID}" "\${AUTH_HEADERS[@]}" -H "Content-Type: application/json" --data "\$PAYLOAD")
+fi
+
+if [[ "\$(echo "\$UPDATE_RESP" | jq -r '.success')" == "true" ]]; then
+    echo "\$WAN_IP" > "\$IP_FILE"
+    echo -e "\033[1;32m[成功] DDNS 已同步：${CFRECORD_NAME} -> \${WAN_IP}\033[0m"
+else
+    echo -e "\033[1;31m[失败] Cloudflare 拒绝更新，错误详情：\033[0m"
+    echo "\$UPDATE_RESP" | jq -c '.errors'
+    exit 1
+fi
+EOF
                         chmod +x /root/cf-v4-ddns.sh
+                        rm -f /root/.cf-id* /root/.cf-wan* /root/.cf_last_ipv4* 2>/dev/null
                         echo -e "${YELLOW}正在执行强制首次解析...${RESET}"
-                        /root/cf-v4-ddns.sh -f true
-                        (crontab -l 2>/dev/null | grep -v "cf-v4-ddns.sh"; echo "*/2 * * * * /root/cf-v4-ddns.sh >/dev/null 2>&1") | crontab -
-                        echo -e "${GREEN}DDNS 部署完成！${RESET}"
+                        if /root/cf-v4-ddns.sh -f; then
+                            (crontab -l 2>/dev/null | grep -v "cf-v4-ddns.sh"; echo "*/2 * * * * /root/cf-v4-ddns.sh >/dev/null 2>&1") | crontab -
+                            echo -e "${GREEN}DDNS 部署完成！已挂载每 2 分钟自动检测任务。${RESET}"
+                        else
+                            echo -e "${RED}首次解析未通过，请根据上方报错信息检查 Token 权限或域名拼写！${RESET}"
+                        fi
+                    else
+                        echo -e "${RED}必填参数不完整，已取消部署。${RESET}"
                     fi
                 elif [ "$ddns_ch" == "2" ]; then
+                    if [ -f /root/cf-v4-ddns.sh ]; then
+                        /root/cf-v4-ddns.sh -f
+                    else
+                        echo -e "${RED}尚未部署 DDNS 脚本，请先使用选项 1 进行部署。${RESET}"
+                    fi
+                elif [ "$ddns_ch" == "3" ]; then
                     crontab -l 2>/dev/null | grep -v "cf-v4-ddns.sh" | crontab -
-                    rm -f /root/cf-v4-ddns.sh
-                    echo -e "${GREEN}DDNS 定时任务与脚本已清理。${RESET}"
+                    rm -f /root/cf-v4-ddns.sh /root/.cf-id* /root/.cf-wan* /root/.cf_last_ipv4* 2>/dev/null
+                    echo -e "${GREEN}DDNS 定时任务、脚本及本地缓存已彻底清理。${RESET}"
                 fi
                 echo "" && read -n 1 -s -r -p "按任意键返回..." ;;
 
@@ -1760,7 +1847,7 @@ main_menu() {
 
         clear
         echo -e "${MAGENTA}=========================================================${RESET}"
-        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.6                     ${RESET}"
+        echo -e "${CYAN}             VPS 综合环境配置管理工具 5.7                     ${RESET}"
         echo -e "${MAGENTA}=========================================================${RESET}"
         echo -e " ${BLUE}系统环境 :${RESET} ${WHITE}${SYS_PRETTY_NAME}${RESET}"
         echo -e " ${BLUE}当前内核 :${RESET} ${WHITE}${KERNEL_DISPLAY}${RESET}"
